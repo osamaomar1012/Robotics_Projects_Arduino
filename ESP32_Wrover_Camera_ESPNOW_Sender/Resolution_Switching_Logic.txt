@@ -1,0 +1,143 @@
+### **Flow Sequence Diagram**
+
+This diagram illustrates how a button press on the Receiver triggers a change on the Sender and updates the display.
+
+      [USER]                  [RECEIVER (TTGO)]                     [SENDER (Camera)]
+         |                            |                                     |
+         |--- (1) Press Button 0 ---->|                                     |
+         |                            |                                     |
+         |                            | (2) Detect Button (loop)            |
+         |                            |     - Debounce check                |
+         |                            |     - Increment 'currentRes'        |
+         |                            |       (0->1->2->0)                  |
+         |                            |                                     |
+         |                            | (3) Send Command 0x01 ------------->|
+         |                            |     (via ESP-NOW)                   |
+         |                            |                                     | (4) OnDataRecv Callback
+         |                            |                                     |     - Receive 0x01
+         |                            |                                     |     - Set needSwitchRes = true
+         |                            |                                     |
+         |                            |                                     | (5) Main Loop
+         |                            |                                     |     - Check needSwitchRes
+         |                            |                                     |     - Get current sensor config
+         |                            |                                     |     - Cycle Resolution:
+         |                            |                                     |       QQVGA -> QVGA -> HQVGA
+         |                            |                                     |     - Apply s->set_framesize()
+         |                            |                                     |
+         |                            |                                     | (6) Capture & Send Frame
+         |                            |<---- Send Image Data Packets -------|     (New Resolution)
+         |                            |                                     |
+         | (7) Update Screen          |                                     |
+         |     - Decode Image         |                                     |
+         |     - drawStats() reads    |                                     |
+         |       'currentRes' to      |                                     |
+         |       print "QVGA" etc.    |                                     |
+         |                            |                                     |
+
+---
+
+### **1. Receiver Code Flow (`ESP32_TTGO_ESPNOW_Receiver.ino`)**
+
+The receiver maintains the `currentRes` variable purely to know what text to display on the screen ("QQVGA", "QVGA", etc.). It assumes the sender receives the command successfully.
+
+**Step A: Variable Definition**
+```cpp
+// Global variable to track the current resolution index
+// 0 = QQVGA (160x120), 1 = QVGA (320x240), 2 = HQVGA (240x176)
+int currentRes = 0; 
+```
+
+**Step B: Input Handling (Inside `loop()`)**
+```cpp
+// Check if Button 0 is pressed (Active LOW)
+if (digitalRead(BUTTON_PIN) == LOW) {
+  // Simple debounce: check if 500ms passed since last press
+  if (millis() - lastBtnTime > 500) { 
+    if (senderMacKnown) {
+      // 1. Prepare the command byte (0x01 is our code for "Switch Resolution")
+      uint8_t cmd = 0x01; 
+      
+      // 2. Send this byte to the Camera via ESP-NOW
+      esp_now_send(senderMac, &cmd, 1);
+      Serial.println("Sent switch resolution command");
+      
+      // 3. Update the local state variable so the screen knows what to show
+      currentRes++;
+      if (currentRes > 2) currentRes = 0; // Wrap around: 0 -> 1 -> 2 -> 0
+    }
+    lastBtnTime = millis(); // Reset debounce timer
+  }
+}
+```
+
+**Step C: Display Update (Inside `drawStats()`)**
+```cpp
+void drawStats() {
+  // ... (RSSI drawing code) ...
+
+  // 4. Use 'currentRes' to determine which text string to draw
+  String resName = "QQVGA"; // Default (0)
+  if (currentRes == 1) resName = "QVGA";
+  else if (currentRes == 2) resName = "HQVGA";
+  
+  // 5. Print the resolution name on the TFT screen
+  tft.print(resName);
+
+  // ... (FPS drawing code) ...
+}
+```
+
+---
+
+### **2. Sender Code Flow (`ESP32_Wrover_Camera_ESPNOW_Sender.ino`)**
+
+The sender listens for the command and physically reconfigures the camera sensor.
+
+**Step A: Flag Definition**
+```cpp
+// Volatile flag because it is modified inside an interrupt (callback)
+// and read inside the main loop.
+volatile bool needSwitchRes = false;
+```
+
+**Step B: Receive Callback (`OnDataRecv`)**
+```cpp
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  // 1. Check if we received a 1-byte packet
+  if (len == 1) {
+    // 2. If the byte is 0x01, set the flag to trigger a switch
+    if (incomingData[0] == 0x01) needSwitchRes = true;
+    
+    // (0x02 is used for frame requests)
+    if (incomingData[0] == 0x02) frameRequested = true;
+  }
+}
+```
+
+**Step C: Main Logic (Inside `loop()`)**
+```cpp
+void loop() {
+  // 3. Check if the flag was set by the callback
+  if (needSwitchRes) {
+    needSwitchRes = false; // Reset flag immediately
+    
+    // 4. Get a pointer to the camera sensor structure
+    sensor_t * s = esp_camera_sensor_get();
+    framesize_t currentSize = s->status.framesize;
+    
+    // 5. Cycle through resolutions based on current state
+    if (currentSize == FRAMESIZE_QQVGA) { // If 160x120
+      s->set_framesize(s, FRAMESIZE_QVGA); // Switch to 320x240
+    } else if (currentSize == FRAMESIZE_QVGA) {
+      s->set_framesize(s, FRAMESIZE_HQVGA); // Switch to 240x176
+    } else {
+      s->set_framesize(s, FRAMESIZE_QQVGA); // Back to 160x120
+    }
+    
+    Serial.printf("Switched resolution to: %d\n", s->status.framesize);
+    delay(100); // Small delay to let the sensor stabilize
+  }
+
+  // ... (Rest of loop captures image with NEW resolution and sends it) ...
+}
+```
