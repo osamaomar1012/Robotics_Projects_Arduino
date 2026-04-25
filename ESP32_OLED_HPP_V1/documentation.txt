@@ -1,0 +1,65 @@
+Created by Eng.Osama Omar
+Senior Integration Lead
+Cairo,Egypt
+
+================================================================================
+PROJECT: ESP32_OLED_HPP_V1 (Motor Control & Battery Telemetry)
+VERSION: 1.0
+================================================================================
+
+1. HARDWARE COMPONENTS:
+-----------------------
+- MCU: TTGO ESP32 (Integrated 0.96" OLED)
+- Motor Driver: DRV8833 Dual H-Bridge
+- Sensor: MAX471 Voltage & Current Sensor
+- Power: 18650 Li-ion Battery
+- Actuator: DC Brushed Motor
+
+2. PIN MAPPING (ESP32):
+-----------------------
+FUNCTION        | GPIO    | NOTES
+----------------|---------|-----------------------------------------------------
+OLED SDA        | 5       | I2C Data
+OLED SCL        | 4       | I2C Clock
+OLED RESET      | 16      | Must be pulled HIGH to enable TTGO OLED
+MOTOR_IN1 (PWM) | 13      | Controls Speed via LEDC Channel 0
+MOTOR_IN2       | 12      | Direction Control (Set LOW for Forward)
+MAX471 VT       | 34      | Analog Input (Voltage: 1V out = 5V in)
+MAX471 AT       | 32      | Analog Input (Current: 1V out = 1A in)
+
+3. WIRING SCHEMATIC:
+--------------------
+MAX471 SENSOR:
+  [RS+]   -> Battery Positive (+)
+  [RS-]   -> DRV8833 VCC
+  [GND]   -> Common Ground
+  [VT]    -> ESP32 GPIO 34
+  [AT]    -> ESP32 GPIO 32
+
+DRV8833 H-BRIDGE:
+  [VCC]   -> MAX471 RS-
+  [GND]   -> Common Ground
+  [IN1]   -> ESP32 GPIO 13
+  [IN2]   -> ESP32 GPIO 12
+  [OUT1]  -> Motor Terminal A
+  [OUT2]  -> Motor Terminal B
+
+4. CALIPER & CALIBRATION:
+-------------------------
+The current ADC logic assumes a 3.3V reference and 12-bit resolution (4095).
+Calculation Logic:
+- Voltage = (rawVT / 4095.0) * 3.3 * 5.0
+- Current = (rawAT / 4095.0) * 3.3
+
+5. CODE LOGIC SUMMARY:
+----------------------
+- OLED Setup: Uses Adafruit_SSD1306 library. Handles the TTGO-specific GPIO 16 reset.
+- PWM: Uses ESP32 'ledc' peripheral at 5kHz / 8-bit resolution.
+- Telemetry: Reads MAX471 every 50ms and updates the display with a Speed ramp.
+
+6. SAFETY NOTES:
+----------------
+- Ensure common ground between Battery, MAX471, DRV8833, and ESP32.
+- The ESP32 ADC is non-linear; for high precision, consider using the 
+  esp_adc_cal library to compensate for Vref variations.
+================================================================================
