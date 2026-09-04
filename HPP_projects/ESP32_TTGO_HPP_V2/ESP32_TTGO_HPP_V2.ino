@@ -18,6 +18,46 @@
 #define BTN_LEFT  0
 #define BTN_RIGHT 35
 
+// JGA12-N20 Encoder Definitions & Wire Colors
+// - Red Wire    -> Motor Positive (+)  -> DRV8833 OUT1
+// - White Wire  -> Motor Negative (-)  -> DRV8833 OUT2
+// - Black Wire  -> Encoder VCC (3.3V)  -> ESP32 3V3
+// - Blue Wire   -> Encoder GND         -> ESP32 GND
+// - Yellow Wire -> Encoder Channel A   -> ESP32 GPIO 25 (Interrupt pin)
+// - Green Wire  -> Encoder Channel B   -> ESP32 GPIO 26 (State/Direction pin)
+#define ENCODER_PIN_A 25
+#define ENCODER_PIN_B 26
+#define ENCODER_PPR   360.0f  // Gearmotor pulses per output shaft revolution (7 CPR * Gear Ratio)
+volatile long encoderTicks = 0;
+uint8_t motorVersion = 1;      // 1 = Version 1 (Motor + Encoder), 2 = Version 2 (Motor without Encoder)
+
+void IRAM_ATTR encoderISR() {
+    if (digitalRead(ENCODER_PIN_B) == HIGH) {
+        encoderTicks++;
+    } else {
+        encoderTicks--;
+    }
+}
+
+void setMotorVersion(uint8_t version) {
+    motorVersion = version;
+    preferences.putUChar("motVer", motorVersion);
+    if (motorVersion == 1) {
+        // --- Version 1: Motor + Encoder ---
+        pinMode(ENCODER_PIN_A, INPUT_PULLUP);
+        pinMode(ENCODER_PIN_B, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), encoderISR, RISING);
+        Serial.println(F("Motor Version Configured: Version 1 (Motor + Encoder)"));
+    } else {
+        // --- Version 2: Motor without Encoder ---
+        detachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A));
+        pinMode(ENCODER_PIN_A, INPUT); // Float to save power/drain
+        pinMode(ENCODER_PIN_B, INPUT);
+        baselineRPM = 0.0;
+        Serial.println(F("Motor Version Configured: Version 2 (Motor without Encoder)"));
+    }
+}
+
 // Global Variables
 float maxCurrentThreshold = 2.5; // Safety limit in Amperes (adjust to motor specs)
 float minVoltageThreshold = 3.2; // 18650 safe discharge limit (Volts)
@@ -26,13 +66,18 @@ int16_t targetSpeed = 0;  // Signed target speed
 float batteryVoltage = 0.0;
 float batteryCurrent = 0.0;
 float batteryPower = 0.0;
+float internalVoltage = 0.0;     // Board-level internal ADC voltage (GPIO 34)
+bool isCharging = false;          // Dynamic USB charging state
 unsigned long lastUpdate = 0;
 
 // Penetration Counter Calibration Variables
 float baselineCurrent = 0.0; // Dynamically calibrated current at current speed
+float baselineRPM = 0.0;     // Dynamically calibrated baseline idle RPM from N20 encoder
+float speedDipThresholdPercent = 10.0; // Drop percentage in RPM to confirm graft penetration
 bool calibrationNeeded = true;
 unsigned long calibrationStartTime = 0;
 float calibrationSum = 0.0;
+float calibrationRPMSum = 0.0; // Accumulator for baseline RPM calibration
 uint16_t calibrationSamples = 0;
 uint32_t estimatedRPM = 0;
 float penetrationOffset = 0.04;        // Amps above baseline to trigger
@@ -173,12 +218,21 @@ void setup() {
     penetrationCount = preferences.getUInt("pCnt", 0);
     penetrationOffset = preferences.getFloat("penOff", 0.04);
     penetrationHysteresis = preferences.getFloat("penHyst", 0.02);
+    speedDipThresholdPercent = preferences.getFloat("spdDip", 10.0); // Load speed dip threshold
     debugMode = preferences.getBool("debug", false);
     oscillationDurationCW = preferences.getUInt("oscDurCw", 2000);
     oscillationDurationCCW = preferences.getUInt("oscDurCcw", 2000);
     
     // Initialize Display
     setupOLED();
+
+    // Initialize TTGO internal battery ADC enable pin
+    pinMode(14, OUTPUT);
+    digitalWrite(14, LOW); // Disable to save power initially
+
+    // Load and initialize Motor Version (0 = Standard, 1 = Premium)
+    motorVersion = preferences.getUChar("motVer", 1); // Default to 1 (Premium)
+    setMotorVersion(motorVersion);
 
     // Initialize SPIFFS and play animation
     if (SPIFFS.begin(true)) {
@@ -508,36 +562,113 @@ void handleCalibration() {
             if (calibrationStartTime == 0) {
                 calibrationStartTime = millis();
                 calibrationSum = 0.0;
+                calibrationRPMSum = 0.0; // Reset RPM sum
                 calibrationSamples = 0;
                 Serial.println(F("Motor at speed. Starting baseline calibration..."));
             }
 
             if (millis() - calibrationStartTime < 2000) { // Calibrate for 2 seconds
                 calibrationSum += batteryCurrent;
+                calibrationRPMSum += (float)estimatedRPM; // Sample current measured RPM
                 calibrationSamples++;
             } else {
                 baselineCurrent = calibrationSum / (float)calibrationSamples;
+                baselineRPM = calibrationRPMSum / (float)calibrationSamples; // Calibrate baseline RPM
                 calibrationNeeded = false;
                 calibrationStartTime = 0; 
                 Serial.print(F("Calibration complete. Baseline Current: "));
                 Serial.print(baselineCurrent, 3);
-                Serial.println(F("A"));
+                Serial.print(F("A, Baseline RPM: "));
+                Serial.println(baselineRPM, 1);
             }
         }
     }
 }
 
+/**
+ * @brief Reads the TTGO board's internal battery voltage (via GPIO 34 and GPIO 14).
+ * @return The measured internal voltage in Volts.
+ */
+float readInternalBatteryVoltage() {
+    // 1. Enable the onboard voltage divider (connected to GPIO 14)
+    digitalWrite(14, HIGH);
+    delay(1); // Allow voltage to stabilize
+    
+    // 2. Read the raw ADC value from GPIO 34
+    uint16_t raw = analogRead(34);
+    
+    // 3. Disable the voltage divider to prevent battery drain
+    digitalWrite(14, LOW);
+    
+    // 4. Convert ADC to voltage (12-bit ADC, 0-4095 range, 3.3V Vref)
+    // The onboard divider is 100k/100k (ratio 1:2), so multiply by 2.0.
+    // ESP32 ADC is non-linear and Vref is typically around 1100mV instead of exactly 1100mV,
+    // so we apply a standard calibration factor (1.10) to align with a digital multimeter.
+    float volt = (raw / 4095.0) * 3.3 * 2.0 * 1.10f;
+    return volt;
+}
+
 void calculateTelemetry() {
-    float appliedVoltage = batteryVoltage * (abs(motorSpeed) / 255.0);
-    estimatedRPM = (uint32_t)(appliedVoltage * (13000.0 / 3.0));
     batteryPower = batteryVoltage * batteryCurrent;
 
+    if (motorVersion == 1) {
+        // --- PREMIUM VERSION: Physical Encoder Tracking ---
+        // Thread-safe copy of encoderTicks and reset
+        noInterrupts();
+        long ticks = encoderTicks;
+        encoderTicks = 0;
+        interrupts();
+
+        // Calculate actual RPM from encoder ticks
+        static unsigned long lastRPMCalcTime = 0;
+        unsigned long now = millis();
+        unsigned long dt = now - lastRPMCalcTime;
+        if (dt == 0) dt = 1; // Prevent division by zero
+
+        if (systemEnabled && abs(motorSpeed) > 10) {
+            float shaftRevs = abs(ticks) / ENCODER_PPR;
+            uint32_t measuredRPM = (uint32_t)(shaftRevs * (60000.0f / dt));
+            
+            // Low pass filter to smooth out noise (30% new value, 70% previous)
+            static float smoothedRPM = 0.0f;
+            smoothedRPM = (measuredRPM * 0.3f) + (smoothedRPM * 0.7f);
+            estimatedRPM = (uint32_t)smoothedRPM;
+        } else {
+            estimatedRPM = 0;
+        }
+        lastRPMCalcTime = now;
+    } else {
+        // --- STANDARD VERSION: Voltage-Based Estimation ---
+        if (systemEnabled && abs(motorSpeed) > 10) {
+            float appliedVoltage = batteryVoltage * (abs(motorSpeed) / 255.0f);
+            estimatedRPM = (uint32_t)(appliedVoltage * (13000.0f / 3.0f)); // Estimated motor speed constant
+        } else {
+            estimatedRPM = 0;
+        }
+    }
+
+    // Read the internal battery voltage
+    internalVoltage = readInternalBatteryVoltage();
+
     bool isBatteryConnected = (batteryVoltage > 2.5);
+    
+    // Compute battery percentage based on the actual battery terminal voltage (MAX471)
     if (isBatteryConnected) {
         float pc = (batteryVoltage - minVoltageThreshold) / (4.2f - minVoltageThreshold) * 100.0f;
         batteryPercent = (uint8_t)constrain(pc, 0, 100);
     } else {
         batteryPercent = 0;
+    }
+
+    // Charging & USB connection detection logic:
+    // Comparing the onboard charger's VBAT line (internalVoltage) with the actual cell terminal voltage (batteryVoltage).
+    if (isBatteryConnected) {
+        // If internal voltage is > 4.25V, or if it is > 0.12V higher than the external battery voltage,
+        // it means USB is plugged in and the charger is actively boosting/supplying power.
+        isCharging = (internalVoltage > 4.25f) || ((internalVoltage - batteryVoltage) > 0.12f);
+    } else {
+        // If no battery is connected, but we have a high voltage reading internally (from the float charger), USB is connected.
+        isCharging = (internalVoltage > 4.0f);
     }
 }
 
@@ -549,14 +680,40 @@ void handleGraftCounter() {
         float dynamicSpikeThreshold = baselineCurrent + penetrationOffset;
         float dynamicFallBackThreshold = dynamicSpikeThreshold - penetrationHysteresis;
 
-        if (batteryCurrent > dynamicSpikeThreshold && !isPenetrating) {
+        // Speed Dip Verification:
+        // Detect a mechanical load spike (skin penetration) by checking if the actual RPM
+        // dips by at least speedDipThresholdPercent below the calibrated baseline RPM.
+        bool isSpeedDipped = false;
+        if (motorVersion == 1) {
+            if (baselineRPM > 50.0f) {
+                float rpmDropPercent = ((baselineRPM - (float)estimatedRPM) / baselineRPM) * 100.0f;
+                isSpeedDipped = (rpmDropPercent >= speedDipThresholdPercent);
+            } else {
+                // Fallback if baseline RPM isn't fully calibrated (e.g., startup transients or very low speeds)
+                isSpeedDipped = true;
+            }
+        } else {
+            // Standard Version: Skip mechanical verification, trust pure current-spike
+            isSpeedDipped = true;
+        }
+
+        // SENSOR FUSION DECISION:
+        // A successful graft count (skin penetration) is triggered when:
+        // 1. Motor current SPIKES above dynamic current threshold (electrical load increase).
+        // 2. Motor actual RPM DIPS below speed threshold (mechanical resistance increase).
+        if (batteryCurrent > dynamicSpikeThreshold && isSpeedDipped && !isPenetrating) {
             isPenetrating = true;
-            Serial.print(F("Penetration START detected. Current: ")); Serial.print(batteryCurrent); Serial.print(F("A, Baseline: ")); Serial.print(baselineCurrent); Serial.println(F("A"));
+            Serial.print(F("FUSION PENETRATION START: Current=")); Serial.print(batteryCurrent);
+            Serial.print(F("A (Thresh=")); Serial.print(dynamicSpikeThreshold);
+            Serial.print(F("A), RPM=")); Serial.print(estimatedRPM);
+            Serial.print(F(" (Base=")); Serial.print(baselineRPM);
+            Serial.println(F(")"));
         } else if (batteryCurrent < dynamicFallBackThreshold && isPenetrating) {
+            // Return of motor current to normal baseline resets the lock and registers the count
             isPenetrating = false;
             penetrationCount++;
             displayGraftFlash(penetrationCount);
-            Serial.print(F("Penetration END detected. Count: ")); Serial.println(penetrationCount);
+            Serial.print(F("FUSION PENETRATION END: Count=")); Serial.println(penetrationCount);
         }
     }
 }
@@ -574,7 +731,6 @@ void updateUI() {
     String displayIP = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
     uint8_t clients = WiFi.softAPgetStationNum();
     bool isBatteryConnected = (batteryVoltage > 2.5);
-    bool isCharging = (batteryVoltage > 4.25); // Simple charging detection logic
     
     refreshOLED(motorSpeed, batteryVoltage, batteryCurrent, safetyTripped, lowBatteryTripped, 
                 estimatedRPM, batteryPower, isBatteryConnected, batteryPercent, isCharging, 

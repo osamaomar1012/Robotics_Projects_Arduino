@@ -49,9 +49,17 @@ DRV8833 MOTOR DRIVER:
   GND                     -> ESP32 GND (Common)
   IN1  (Logic)            -> ESP32 GPIO 13 (PWM Channel 0)
   IN2  (Logic)            -> ESP32 GPIO 12 (PWM Channel 1)
-  OUT1 (Power)            -> Motor Terminal 1
-  OUT2 (Power)            -> Motor Terminal 2 
+  OUT1 (Power)            -> JGA12-N20 Red Wire (Motor Positive +)
+  OUT2 (Power)            -> JGA12-N20 White Wire (Motor Negative -)
   SLP (Sleep)             -> ESP32 3.3V (Must be HIGH to enable driver)
+
+JGA12-N20 ENCODER MOTOR (WIRE MAPPING):
+  Red Wire    (Motor +)   -> DRV8833 OUT1
+  White Wire  (Motor -)   -> DRV8833 OUT2
+  Black Wire  (Enc VCC)   -> ESP32 3.3V (Encoder Power)
+  Blue Wire   (Enc GND)   -> ESP32 GND (Common Ground)
+  Yellow Wire (Channel A) -> ESP32 GPIO 25 (High-speed interrupt pin)
+  Green Wire  (Channel B) -> ESP32 GPIO 26 (State/Direction pin)
 
 18650 BATTERY:
   Positive (+)            -> MAX471 RS+
@@ -72,9 +80,26 @@ TECHNICAL NOTES:
 
 4. SIGNAL INTEGRITY: For the PWM lines (13 and 12), keep wires short to 
    minimize electromagnetic interference (EMI) that could affect the 
-   analog readings on pins 34 and 32.
+   analog readings on pins 36 and 32.
 
 5. DECOUPLING: If the display flickers or the ESP32 reboots when the motor
    starts, add a 100uF to 470uF electrolytic capacitor across the
    DRV8833 VCC and GND pins to handle current spikes.
+
+6. DUAL-VOLTAGE MONITORING & USB CHARGING DETECTION:
+   - Onboard Battery ADC (GPIO 34): The TTGO T-Display board has a built-in
+     100k/100k voltage divider connected to GPIO 34 to read battery level.
+   - Onboard ADC Enable (GPIO 14): Power to the voltage divider is controlled
+     by GPIO 14. GPIO 14 must be driven HIGH to perform a reading, and LOW 
+     to save power.
+   - Dual-Sensor Comparison:
+     * When USB is disconnected (battery power): Both the internal ADC (GPIO 34)
+       and external MAX471 (GPIO 36) read identical voltage levels (within 0.1V).
+     * When USB is connected: The onboard TP4054 lithium charger applies power
+       to the board's VBAT line, causing the internal ADC (GPIO 34) to read
+       significantly higher (typically > 4.25V, or > 0.12V above the actual 
+       battery pack voltage read by the external MAX471).
+     * Charging Status: The system dynamically compares these two readings
+       to determine if the USB is plugged in and the battery is charging,
+       triggering the "CHG" logo on the TFT display and detailed status on the web.
 ================================================================================

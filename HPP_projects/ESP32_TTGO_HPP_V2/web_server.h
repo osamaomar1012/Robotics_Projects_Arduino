@@ -24,18 +24,19 @@ WebServer server(80);
 
 // Externs to link with main project globals
 extern int16_t motorSpeed;
-extern float batteryVoltage, batteryCurrent, batteryPower, maxCurrentThreshold, minVoltageThreshold, baselineCurrent;
+extern float batteryVoltage, batteryCurrent, batteryPower, maxCurrentThreshold, minVoltageThreshold, baselineCurrent, internalVoltage, baselineRPM, speedDipThresholdPercent;
 extern float penetrationOffset, penetrationHysteresis;
 extern bool calibrationNeeded;
 extern uint32_t estimatedRPM, penetrationCount;
-extern uint8_t batteryPercent, webBaseSpeed;
+extern uint8_t batteryPercent, webBaseSpeed, motorVersion;
+extern void setMotorVersion(uint8_t version);
 enum OperationState { IDLE, RUNNING, PAUSED };
 enum ScanState { SCAN_IDLE, SCAN_REQUESTED, SCANNING, SCAN_COMPLETE }; extern volatile ScanState scanState;
 extern String initialScanResultsJson;
 extern OperationState operationState;
 extern String patientMobile;
 extern uint32_t screenSwitchTime;
-extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, debugMode, isPenetrating, wifiConnecting, oscillatingMode;
+extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, debugMode, isPenetrating, wifiConnecting, oscillatingMode, isCharging;
   extern String patientName, patientAge, patientNationality, doctorName;
 extern unsigned long operationTimeAccumulator, lastTimeCapture; extern uint32_t pauseCount;
 extern uint32_t oscillationDuration;
@@ -162,6 +163,8 @@ const char READINGS_HTML[] PROGMEM = R"=====(
         .label { font-size: 0.75em; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
         .link-footer { margin-top: 25px; display: block; color: #38bdf8; text-decoration: none; font-size: 0.85em; }
         .status-dot { height: 10px; width: 10px; background-color: #10b981; border-radius: 50%; display: inline-block; margin-right: 5px; box-shadow: 0 0 8px #10b981; }
+        .compare-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 4px 0; }
+        .compare-label { font-size: 0.8em; color: #94a3b8; text-align: left; }
     </style>
 </head>
 <body>
@@ -170,8 +173,22 @@ const char READINGS_HTML[] PROGMEM = R"=====(
             <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,11.67 4.53,11.34 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
             <h2>READINGS</h2>
         </div>
+        <div class="card" style="flex-direction: column; padding: 18px 25px; gap: 8px;">
+            <div style="font-weight: bold; font-size: 0.8em; color: #38bdf8; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; width:100%; text-align: left;">Voltage Comparison</div>
+            <div class="compare-row">
+                <span class="compare-label">MAX471 Sensor (Battery Pack)</span>
+                <span id="v" class="value">0.00V</span>
+            </div>
+            <div class="compare-row">
+                <span class="compare-label">TTGO Internal ADC (Board Pin)</span>
+                <span id="v_int" class="value">0.00V</span>
+            </div>
+            <div class="compare-row" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 5px;">
+                <span class="compare-label" style="font-weight:600;">Power State</span>
+                <span id="pwr_status" class="value" style="font-size: 1.1em; font-weight: bold;">Checking...</span>
+            </div>
+        </div>
         <div class="card">
-            <div><div class="label">VOLTAGE</div><div id="v" class="value">0.0V</div></div>
             <div><div class="label">CURRENT</div><div id="i" class="value">0.0A</div></div>
             <div><div class="label">POWER</div><div id="p" class="value">0.0W</div></div>
         </div>
@@ -194,7 +211,18 @@ const char READINGS_HTML[] PROGMEM = R"=====(
         function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
         setInterval(() => {
             fetch('/telemetry').then(r => r.json()).then(data => {
-                document.getElementById('v').innerText = data.v + 'V';
+                document.getElementById('v').innerText = data.v.toFixed(2) + 'V';
+                document.getElementById('v_int').innerText = data.v_int.toFixed(2) + 'V';
+                
+                let statusText = "DISCHARGING (Battery)";
+                let statusColor = "#f59e0b"; // amber
+                if (data.chg === 1) {
+                    statusText = "CHARGING via USB ⚡";
+                    statusColor = "#10b981"; // green
+                }
+                document.getElementById('pwr_status').innerText = statusText;
+                document.getElementById('pwr_status').style.color = statusColor;
+
                 document.getElementById('i').innerText = data.i + 'A';
                 document.getElementById('p').innerText = data.p + 'W';
                 document.getElementById('pct').innerText = data.pct + '%';
@@ -268,12 +296,22 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
             <button class="btn" style="background: #ea580c;" onclick="saveSafety()">SAVE SAFETY</button>
         </div>
         <div class="card">
+            <div class="label">Motor Hardware Version</div>
+            <select id="motVer" onchange="set('motVer', this.value)" style="width: 90%; background: #334155; color: white; border: 1px solid #475569; padding: 10px; border-radius: 8px; outline: none; margin-bottom: 5px;">
+                <option value="1">Version 1: Motor + Encoder</option>
+                <option value="2">Version 2: Motor without Encoder</option>
+            </select>
+        </div>
+        <div class="card">
             <div class="label">Graft Sensitivity</div>
             <div class="flex-row">
                 <div><div class="label">Spike (A)</div><input type="number" id="po" step="0.01"></div>
                 <div><div class="label">Hyst (A)</div><input type="number" id="ph" step="0.01"></div>
             </div>
-            <button class="btn" style="background: #0284c7;" onclick="savePen()">SAVE FACTORS</button>
+            <div id="speedDipRow" class="flex-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+                <div><div class="label">Speed Dip (%)</div><input type="number" id="sd" step="0.5" min="1" max="50"></div>
+            </div>
+            <button class="btn" style="background: #0284c7; margin-top: 10px;" onclick="savePen()">SAVE SENSITIVITY</button>
         </div>
         <div class="card">
             <div class="label">Engineering Mode</div>
@@ -293,11 +331,15 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
         function set(c, v) { fetch(`/control?cmd=${c}&val=${v}`); }
         function saveSafety() { set('maxCurr', document.getElementById('mc').value); set('minVolt', document.getElementById('mv').value); }
         function saveOsc() { set('oscDurCw', document.getElementById('oscCW').value); set('oscDurCcw', document.getElementById('oscCCW').value); }
-        function savePen() { set('penOff', document.getElementById('po').value); set('penHyst', document.getElementById('ph').value); }
+        function savePen() { 
+            set('penOff', document.getElementById('po').value); 
+            set('penHyst', document.getElementById('ph').value); 
+            set('spdDip', document.getElementById('sd').value); 
+        }
         
         setInterval(() => {
             fetch('/telemetry').then(r => r.json()).then(data => {
-                if (document.activeElement.tagName !== 'INPUT') {
+                if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
                     document.getElementById('st').value = data.st;
                     document.getElementById('oscCW').value = data.oscDurCw; document.getElementById('oscCCW').value = data.oscDurCcw;
                     document.getElementById('ot').value = data.oscDur;
@@ -305,7 +347,13 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
                     document.getElementById('mv').value = data.mv;
                     document.getElementById('po').value = data.po;
                     document.getElementById('ph').value = data.ph;
+                    document.getElementById('sd').value = data.spdDip;
+                    document.getElementById('motVer').value = data.motVer;
                 }
+                
+                // Show or hide the Speed Dip (%) input field dynamically depending on the selected motor version
+                document.getElementById('speedDipRow').style.display = (data.motVer === 1) ? 'flex' : 'none';
+
                 let b = document.getElementById('db');
                 if (data.debug) {
                     b.innerText = "SAFETY DISABLED (ON)";
@@ -952,6 +1000,8 @@ void handleSaveWifi() {
 void handleTelemetry() {
     String json = "{";
     json += "\"v\":" + String(batteryVoltage, 2) + ",";
+    json += "\"v_int\":" + String(internalVoltage, 2) + ",";
+    json += "\"chg\":" + String(isCharging ? 1 : 0) + ",";
     json += "\"i\":" + String(batteryCurrent, 2) + ",";
     json += "\"p\":" + String(batteryPower, 2) + ",";
     json += "\"rpm\":" + String(estimatedRPM) + ",";
@@ -961,6 +1011,7 @@ void handleTelemetry() {
     json += "\"set\":" + String(webBaseSpeed) + ",";    // User-defined setpoint
     json += "\"mc\":" + String(maxCurrentThreshold, 1) + ",";
     json += "\"mv\":" + String(minVoltageThreshold, 1) + ",";
+    json += "\"motVer\":" + String(motorVersion) + ",";
     json += "\"st\":" + String(screenSwitchTime / 1000) + ",";
     json += "\"trip\":" + String((safetyTripped || lowBatteryTripped) && !debugMode ? 1 : 0) + ",";
     json += "\"debug\":" + String(debugMode ? 1 : 0) + ",";
@@ -970,6 +1021,8 @@ void handleTelemetry() {
     json += "\"oscDurCcw\":" + String(oscillationDurationCCW) + ",";
     json += "\"po\":" + String(penetrationOffset, 2) + ",";
     json += "\"ph\":" + String(penetrationHysteresis, 2) + ",";
+    json += "\"spdDip\":" + String(speedDipThresholdPercent, 1) + ",";
+    json += "\"baseRPM\":" + String(baselineRPM, 1) + ",";
     json += "\"calib\":" + String(calibrationNeeded ? 1 : 0) + ",";
     json += "\"spikeT\":" + String(baselineCurrent + penetrationOffset, 2) + ",";
     json += "\"exitT\":" + String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 2) + ",";
@@ -1062,6 +1115,16 @@ void handleControl() {
         penetrationHysteresis = val.toFloat();
         preferences.putFloat("penHyst", penetrationHysteresis);
         displayWebConfirmation("Hyst: " + val + "A");
+    }
+    if (cmd == "spdDip") {
+        speedDipThresholdPercent = val.toFloat();
+        preferences.putFloat("spdDip", speedDipThresholdPercent);
+        displayWebConfirmation("Speed Dip: " + val + "%");
+    }
+    if (cmd == "motVer") {
+        uint8_t ver = val.toInt();
+        setMotorVersion(ver);
+        displayWebConfirmation(ver == 1 ? "Premium N20" : "Std Motor");
     }
     if (cmd == "scrTime") {
         screenSwitchTime = val.toInt() * 1000;
