@@ -22,6 +22,20 @@ namespace Motion {
     void loadCalibration() {
         if (Drivers::NVS::prefs.getBytesLength("OFFSET") == sizeof(offsets)) {
             Drivers::NVS::prefs.getBytes("OFFSET", &offsets, sizeof(offsets));
+            
+            // SAFETY CHECK: Validate loaded offsets
+            bool corrupt = false;
+            for(int i=0; i<4; i++) {
+                for(int j=0; j<3; j++) {
+                    // If offset is NaN or unreasonably large (> 45 degrees), assume corruption
+                    if (isnan(offsets[i][j]) || abs(offsets[i][j]) > 45.0f) corrupt = true;
+                }
+            }
+            if (corrupt) {
+                Serial.println("[Motion] Corrupt Calibration Data detected! Resetting to 0.");
+                memset(offsets, 0, sizeof(offsets));
+                Drivers::Buzzer::play(MELODY_CAM_FAILURE);
+            }
         } else {
             memset(offsets, 0, sizeof(offsets)); // Ensure clean state if no config
         }

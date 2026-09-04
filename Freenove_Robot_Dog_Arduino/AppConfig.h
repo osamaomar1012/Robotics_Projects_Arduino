@@ -31,4 +31,9 @@
 #define BATT_LOW_WARNING    5900 // [mV] Trigger low battery alarm
 #define BATT_CRITICAL       3000 // [mV] Emergency shutdown threshold
 
+// --- Connection Priorities ---
+#define CONN_PRIORITY_BLE       1 // Highest Priority
+#define CONN_PRIORITY_REMOTE    2
+#define CONN_PRIORITY_WIFI      3 // Lowest Priority
+
 #endif

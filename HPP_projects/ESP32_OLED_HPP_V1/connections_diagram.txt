@@ -1,0 +1,82 @@
+================================================================================
+SYSTEM CONNECTION DIAGRAM: ESP32 MOTOR CONTROL
+================================================================================
+
+    +-----------------------+           +-----------------------+
+    |     18650 BATTERY     |           |        DC MOTOR       |
+    |  [+]             [-]  |           |      (M1)   (M2)      |
+    +---|---------------|---+           +-------|-------|-------+
+        |               |                       |       |
+        |               |               +-------|-------|-------+
+        |               |               |       |       |       |
+    +---V--------------+`-----------+   |   +---V-------V-------+
+    |      MAX471      |            |   |   |      DRV8833      |
+    | (V/I SENSOR)     |            |   |   |   (MOTOR DRIVER)  |
+    +------------------+            |   |   +-------------------+
+    | [RS+] Source (+) <------------+   |   | [VCC] Power In  <--[From MAX471 RS-]
+    | [RS-] Load (+)   -----------------+   | [GND] Ground      |
+    | [VT]  Voltage Out ---[GPIO 34]        | [IN1] PWM Speed <--[GPIO 13]
+    | [AT]  Current Out ---[GPIO 32]        | [IN2] Direction <--[GPIO 12]
+    | [GND] Common GND  ---|                | [OUT1] Terminal A->[Motor M1]
+    +-------------------+  |                | [OUT2] Terminal B->[Motor M2]
+                           |                +-------------------+
+                           |
+    +----------------------V------------------------------------+
+    |                    ESP32 (TTGO BOARD)                     |
+    |                                                           |
+    |  [GND] <-------------+------------- (Battery Negative -)  |
+    |  [34]  <------------- (MAX471 VT)                         |
+    |  [32]  <------------- (MAX471 AT)                         |
+    |  [13]  -------------> (DRV8833 IN1)                       |
+    |  [12]  -------------> (DRV8833 IN2)                       |
+    |                                                           |
+    |  [I2C Internal Connection]                                |
+    |  [GPIO 5] -> OLED SDA                                     |
+    |  [GPIO 4] -> OLED SCL                                     |
+    |  [GPIO 16]-> OLED RESET                                   |
+    +-----------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+WIRING TABLE REFERENCE:
+--------------------------------------------------------------------------------
+MAX471 SENSOR:
+  RS+ (Positive Input)    -> 18650 Battery (+)
+  RS- (Positive Output)   -> DRV8833 VCC
+  VT  (Voltage Signal)    -> ESP32 GPIO 34 (Analog In)
+  AT  (Current Signal)    -> ESP32 GPIO 32 (Analog In)
+  GND                     -> ESP32 GND (Common)
+
+DRV8833 MOTOR DRIVER:
+  VCC                     -> MAX471 RS-
+  GND                     -> ESP32 GND (Common)
+  IN1  (Logic)            -> ESP32 GPIO 13 (PWM Channel 0)
+  IN2  (Logic)            -> ESP32 GPIO 12 (Set LOW for Forward)
+  OUT1 (Power)            -> Motor Terminal 1
+  OUT2 (Power)            -> Motor Terminal 2
+  EEP / SLP               -> ESP32 3.3V (Must be HIGH to enable driver)
+
+18650 BATTERY:
+  Positive (+)            -> MAX471 RS+
+  Negative (-)            -> ESP32 GND (Common)
+
+--------------------------------------------------------------------------------
+TECHNICAL NOTES:
+--------------------------------------------------------------------------------
+1. COMMON GROUND: The Battery (-), ESP32 GND, MAX471 GND, and DRV8833 GND must
+   all be connected together for the signal references to work correctly.
+
+2. VOLTAGE LIMITS: The MAX471 outputs a max of 3V when the source voltage is
+   15V (1/5 ratio). At 4.2V (fully charged 18650), VT will output ~0.84V, 
+   which is well within the ESP32's 3.3V ADC limit.
+
+3. CURRENT LIMITS: The MAX471 outputs 1V per 1A. Ensure your motor does not 
+   exceed 3A peak, or you may exceed the ESP32's 3.3V ADC limit on the AT pin.
+
+4. SIGNAL INTEGRITY: For the PWM lines (13 and 12), keep wires short to 
+   minimize electromagnetic interference (EMI) that could affect the 
+   analog readings on pins 34 and 32.
+
+5. DECOUPLING: If the OLED flickers or the ESP32 reboots when the motor
+   starts, add a 100uF to 470uF electrolytic capacitor across the
+   DRV8833 VCC and GND pins to handle current spikes.
+================================================================================

@@ -1,0 +1,126 @@
+================================================================================
+               EL-BASEET HPP_V3 - SYSTEM CONNECTIONS DIAGRAM
+================================================================================
+
+SYSTEM OVERVIEW:
+--------------------------------------------------------------------------------
+  [ SENDER (Surgical Pen) ]             [ RECEIVER (CrowPanel S3) ]
+  +-----------------------+             +-------------------------+
+  | ESP32-WROVER-E (CAM)  |             | ESP32-S3                |
+  |                       |   ESP-NOW   |                         |
+  | [Camera] ---------->  | ~~~~~~~~~~> | [2.8" HMI Display]      |
+  | [Motor Driver]        |  (WiFi Ch1) | [Touch Interface]       |
+  | [Current Sensor]      | <---------- | [Audio/Voice Cmd]       |
+  +-----------------------+   Requests  +-------------------------+
+
+SECTION 1: SURGICAL PEN SENDER PINOUTS
+--------------------------------------------------------------------------------
+This unit handles the MJPEG/ESP-NOW stream and the surgical pen hardware. 
+Choose the pinout based on your `SELECTED_BOARD` in `BoardConfig.h`.
+
+--- OPTION A: ESP32-WROVER-E (Standard Dev Board) ---
+* [ Camera Module (OV2640) ]
+* D0 - D7   : GPIO 4, 5, 18, 19, 36, 39, 34, 35
+* XCLK      : GPIO 21
+* PCLK      : GPIO 22
+* VSYNC     : GPIO 25
+* HREF      : GPIO 23
+* SDA (SCCB): GPIO 26
+* SCL (SCCB): GPIO 27
+* PWDN      : GPIO 32
+* RESET     : -1 (Not Connected)
+* FLASH LED : GPIO 4 (Shared with D0 on standard modules)
+* [ Motor Driver (DRV8833) ]
+* IN1 (Forward) : GPIO 2
+* IN2 (Reverse) : GPIO 13
+* [ Telemetry I2C ]
+* SDA           : GPIO 14
+* SCL           : GPIO 15
+
+--- OPTION B: ESP32-CAM (AI-Thinker Module) ---
+* [ Camera Module (OV2640) ]
+* D0 - D7   : GPIO 5, 18, 19, 21, 36, 39, 34, 35
+* XCLK      : GPIO 0
+* PCLK      : GPIO 22
+* VSYNC     : GPIO 25
+* HREF      : GPIO 23
+* SDA (SCCB): GPIO 26
+* SCL (SCCB): GPIO 27
+* PWDN      : GPIO 32
+* RESET     : -1
+* FLASH LED : GPIO 4 (PWM Brightness Supported)
+* [ Motor Driver (DRV8833) ]
+* IN1 (Forward) : GPIO 2
+* IN2 (Reverse) : GPIO 12
+* [ Telemetry I2C ]
+* SDA           : GPIO 14
+* SCL           : GPIO 15
+
+--- SENSOR COMMON CONNECTIONS ---
+* VCC / VM      : Battery/Power Rail (Max 10V)
+* GND           : Common Ground
+* [ MAX471 -> ADS1115 ]
+* AT (Current)  : GPIO 32 (ADC1 - High-precision sampling)
+* VT (Voltage)  : GPIO 34 (ADC1 - Battery monitoring)
+* RS+ / RS-     : In-line with Motor Power Supply
+
+WIRING SCHEMATIC (SENDER):
+    +--------------------------+
+    |      ESP32-WROVER-E      |
+    |      SURGICAL SENDER     |
+    +--------------------------+
+       |   |   |   |   |   |
+  [GND] [5V] [G2] [G12/13] [SDA] [SCL]
+    |     |    |    |    |     |
+    |     | +--+----+    +-----+-----+
+    |     | |  DRV8833   |  ADS1115  |
+    |     | |  (MOTOR)   | (Telemetry)|
+    +-----+------------------------- (GND RAIL)
+
+[ Local Telemetry - OLED (SSD1306) ] - (Currently Disabled by Toggle)
+* SDA           : GPIO 14
+* SCL           : GPIO 15
+* VCC           : 3.3V
+* GND           : Ground
+
+--------------------------------------------------------------------------------
+
+SECTION 2: HMI RECEIVER (CROWPANEL S3 2.8")
+--------------------------------------------------------------------------------
+This unit handles the HUD, Menu, and User Interaction.
+
+[ Display (ST7789 Parallel/SPI) ]
+* BCLK (SCLK)   : GPIO 42
+* MOSI          : GPIO 39
+* DC            : GPIO 41
+* CS            : GPIO 40
+* Backlight     : GPIO 38
+
+[ Touch Controller (GT911 / FT5x06) ]
+* SDA           : GPIO 15
+* SCL           : GPIO 16
+* INT           : GPIO 47
+* RST           : GPIO 1 (Output) / 2 (High Trigger)
+
+[ Audio Output ]
+* Buzzer        : GPIO 8 (PWM)
+* Speaker BCLK  : GPIO 13
+* Speaker LRC   : GPIO 11
+* Speaker DOUT  : GPIO 12
+* Speaker Mute  : GPIO 21 (Active LOW to enable sound)
+
+[ Audio Input ]
+* Mic BCLK      : GPIO 9
+* Mic WS        : GPIO 3
+* Mic DIN       : GPIO 10
+
+--------------------------------------------------------------------------------
+
+SECTION 3: COMMUNICATION SETTINGS
+--------------------------------------------------------------------------------
+* WiFi Mode     : AP_STA (Sender) / STA (Receiver)
+* Protocol      : ESP-NOW (Uncompressed Chunks) & MJPEG over HTTP (Port 80)
+* Channel       : 1 (Fixed for low-latency synchronization)
+* Frame Request : 0x02 (Pull Strategy)
+
+================================================================================

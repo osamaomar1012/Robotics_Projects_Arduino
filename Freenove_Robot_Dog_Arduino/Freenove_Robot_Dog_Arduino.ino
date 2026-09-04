@@ -3,6 +3,11 @@
  * @brief Main Firmware Entry Point
  * @details Consolidated firmware for Freenove Robot Dog ESP32.
  *          Organized into .ino tabs for Arduino IDE compatibility.
+ * 
+ * @attention COMPILATION SETTINGS:
+ *  - Board: ESP32 Wrover Module
+ *  - Partition Scheme: Huge APP (3MB No OTA/1MB SPIFFS)
+ *  - PSRAM: Enabled
  */
 
 // --- Board Check ---
@@ -39,17 +44,23 @@ void setup() {
         Serial.println("PSRAM Not Found! Check Tools > PSRAM > Enabled");
     }
 
-    // 1. Initialize Camera FIRST (Critical for I2C/Timer resources)
-    // Comms::Camera::begin();         
-    // delay(100);
-
-    // 2. Initialize Hardware Drivers
+    // 1. Initialize Drivers & NVS
     Drivers::NVS::begin();          // Non-Volatile Storage
+
+    // 2. Initialize Camera FIRST (Critical for I2C/Timer resources)
+    // Initialize before BLE to avoid radio noise/power spikes affecting SCCB
+    Comms::Camera::begin();
+    delay(100);
+
+    // 3. Initialize Communications
+    Comms::BLE::begin();            // Bluetooth Low Energy
+    delay(100);
+
+    // 4. Initialize Remaining Hardware
     Drivers::PCA9685::begin();      // Servo Driver
     Drivers::PCA9685::releaseAll(); // Relax servos on boot
     
     Drivers::Battery::begin();      // Battery Monitor
-
     Drivers::Buzzer::begin();       // Audio
     Drivers::Sonar::begin();        // Ultrasonic
     Drivers::LEDs::begin();         // RGB & Built-in LEDs
@@ -59,8 +70,8 @@ void setup() {
     Motion::loadCalibration();      // Load servo offsets
     Drivers::LEDs::loadConfig();    // Load LED patterns
 
-    // 4. Initialize Communications
-    Comms::BLE::begin();            // Bluetooth Low Energy
+    // 4. Start Background Managers
+    Comms::Radio::begin();          // Radio State Manager
 
     Serial.println("[System] Setup finished!");
 
@@ -72,13 +83,10 @@ void setup() {
     xTaskCreateUniversal(loopSecondary, "Secondary_Task", 8192, NULL, 1, NULL, 1); // Priority 1 (Low)
 
     // 6. Startup Feedback
-    // if (!Comms::Camera::isCameraNormal) {
-    //     Drivers::Buzzer::play(MELODY_CAM_FAILURE);
-    // }
-    // if (!Comms::Camera::isCameraNormal) {
-    //     Serial.println("Camera Init Failed - Playing Failure Melody");
-    //     Drivers::Buzzer::play(MELODY_CAM_FAILURE); 
-    // }
+    if (!Comms::Camera::isCameraNormal) {
+        Serial.println("Camera Init Failed - Playing Failure Melody");
+        Drivers::Buzzer::play(MELODY_CAM_FAILURE); 
+    }
     Drivers::Buzzer::play(MELODY_POWER_UP);
     
     // Initial Posture

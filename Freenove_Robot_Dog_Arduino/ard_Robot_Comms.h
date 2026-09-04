@@ -28,11 +28,17 @@ namespace Comms {
         static bool isCameraNormal;
         static void begin();
         static void setupWiFi();
-        static void startServer();
         static void startCmdServer();
         static void taskServer(void *pvParameters);
         static void taskCmdServer(void *pvParameters);
     };
+
+    // --- Radio State Manager ---
+    namespace Radio {
+        extern bool isRemoteOnline;
+        void begin();
+        void touchRemote();
+    }
 
     // --- BLE Service ---
     namespace BLE {

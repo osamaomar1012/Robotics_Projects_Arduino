@@ -157,6 +157,12 @@ namespace Drivers {
         const int tuneBb[] = {2000};
         const float beatBb[] = {1.0};
         
+        const int tuneBleReq[] = {1500, 0, 1500, 0, 1500};
+        const float beatBleReq[] = {0.1, 0.05, 0.1, 0.05, 0.1};
+
+        const int tuneRemoteReq[] = {800, 0, 800, 0, 800};
+        const float beatRemoteReq[] = {0.1, 0.05, 0.1, 0.05, 0.1};
+
         bool isPlaying = false;
         int currentMelody = -1;
 
@@ -247,6 +253,12 @@ namespace Drivers {
                         playRoutine(tuneBb, beatBb, 1, 100);
                         vTaskDelay(100);
                         playRoutine(tuneBb, beatBb, 1, 100);
+                        break;
+                    case MELODY_BLE_REQUEST:
+                        playRoutine(tuneBleReq, beatBleReq, 5, 100);
+                        break;
+                    case MELODY_REMOTE_REQUEST:
+                        playRoutine(tuneRemoteReq, beatRemoteReq, 5, 100);
                         break;
 
                     // Add other cases here...

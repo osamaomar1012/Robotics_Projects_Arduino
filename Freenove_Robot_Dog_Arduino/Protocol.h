@@ -39,5 +39,7 @@
 #define MELODY_DHTG                 13
 #define MELODY_BB_CLEAR_1           14
 #define MELODY_BB_CLEAR_2           15
+#define MELODY_BLE_REQUEST          16
+#define MELODY_REMOTE_REQUEST       17
 
 #endif

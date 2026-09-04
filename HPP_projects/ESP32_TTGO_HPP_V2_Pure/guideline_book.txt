@@ -1,0 +1,519 @@
+================================================================================
+               EL-BASEET HAIR PEN-V1 - WEB INTERFACE GUIDE
+================================================================================
+
+    This document provides a comprehensive walkthrough of the web-based
+    Graphical User Interface (GUI) for the EL-BASEET Surgical Assistant.
+
+    Created by: Eng. Osama Omar
+    Version: 1.0
+
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1.  Introduction to the Web Interface
+2.  Section 1: Main Dashboard
+3.  Section 2: Operation Page
+4.  Section 3: Patient Management
+5.  Section 4: Add New Patient Page
+6.  Section 5: Configuration & Settings
+7.  Section 6: Diagnostics (Detailed Readings)
+8.  Section 7: Report Archive
+9.  Section 8: WiFi Setup
+10. Section 9: Template Editor
+11. Section 10: Onboard Display & Physical Buttons
+
+================================================================================
+
+1. INTRODUCTION TO THE WEB INTERFACE
+------------------------------------
+The web interface is the primary control center for the Hair Pen. It allows the
+operator to manage patients, control the motor, monitor system status, configure
+advanced settings, and generate post-operative reports.
+
+To access it, connect your device (phone or computer) to the WiFi network
+named "HPP_CONTROL_V1" (password: 12345678) and navigate to http://192.168.4.1
+in your web browser.
+
+================================================================================
+
+2. SECTION 1: MAIN DASHBOARD
+--------------------------------------------
+This is the primary landing page. Its purpose is to manage patient selection,
+start a new procedure, and provide access to all other system pages.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 EL-BASEET HAIR PEN-V1            |
+  +--------------------------------------------------+
+  | [!!! SYSTEM HALTED: OVERLOAD !!!] (Alarm Only)   |
+  +--------------------------------------------------+
+  |  CURRENT PATIENT: [ Patient Name ]               |
+  +--------------------------------------------------+
+  |  OPERATION CONTROL                               |
+  |  [      START OPERATION      ]                   |
+  |  [ GENERATE REPORT ] (Appears after stop)        |
+  +--------------------------------------------------+
+  |  [        Patient Management        ]           |
+  |  [             Settings             ]           |
+  |  [           REPORT ARCHIVE           ]         |
+  |  [           Diagnostics            ]         |
+  +--------------------------------------------------+
+  |  WIFI CONNECTION SETTINGS                        |
+  |  Help & Guidelines                               |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   ALARM BOX: A red box that only appears if a safety system (Overcurrent or
+    Low Battery) has been triggered, halting the motor.
+
+*   CURRENT PATIENT: Displays the name of the patient selected from the
+    'Patient Management' page. This card only appears when a patient is active.
+
+*   OPERATION CONTROL:
+    - [START OPERATION]: Begins the procedure. This starts the timer and
+      redirects you to the dedicated 'Operation Page'. This button is only
+      enabled when a patient is selected.
+    - [GENERATE REPORT]: Appears after an operation is stopped. Clicking this
+      saves a permanent record of the operation to the 'Report Archive' and
+      opens a printable HTML report in a new tab.
+
+*   NAVIGATION:
+    - [Patient Management]: A full-width button that takes you to the page for selecting or adding patients.
+    - [Settings]: A full-width button that goes to the device Configuration page.
+    - [REPORT ARCHIVE]: A full-width button that goes to the list of saved surgical reports.
+    - [Diagnostics]: A full-width button that goes to the real-time diagnostics panel.
+    - WIFI CONNECTION SETTINGS: A text link at the bottom of the page to configure the device to connect to a local WiFi network.
+    - Help & Guidelines: A text link at the very bottom that opens this user guide in a new browser tab.
+
+================================================================================
+
+3. SECTION 2: OPERATION PAGE
+-------------------------------------------
+This page appears automatically after you press "Start Operation". It contains
+all the real-time controls needed during the procedure.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |  OPERATION CONTROL                               |
+  |  [ PAUSE ] [ RESUME ] [ STOP OPERATION ]         |
+  +--------------------------------------------------+
+  |  GRAFT COUNTER                                   |
+  |                  [ 125 ]                         |
+  |  [ RESET COUNTER ]                               |
+  +--------------------------------------------------+
+  |  SETPOINT: [ 200 ]      ACTUAL RPM: [ 1980 ]     |
+  |  <----[==================O========]----> (Slider)|
+  |  [ ON ] [ OFF ] [ REVERSE ]                     |
+  +--------------------------------------------------+
+  |  OPERATING MODE                                  |
+  |  [ NORMAL ] [ OSCILLATE ]                        |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   OPERATION CONTROL:
+    - [PAUSE] / [RESUME]: Temporarily stops/restarts the motor and the timer.
+    - [STOP OPERATION]: Ends the procedure, finalizes the data, and redirects
+      you back to the Main Dashboard to generate the report.
+
+*   GRAFT COUNTER, MOTOR CONTROL, OPERATING MODE: These controls function
+    exactly as they did on the old dashboard, allowing for real-time
+    adjustments to speed, direction, and mode during the procedure.
+
+================================================================================
+
+4. SECTION 3: PATIENT MANAGEMENT PAGE
+--------------------------------
+This page is for selecting or removing existing patient records.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |               PATIENT MANAGEMENT                 |
+  +--------------------------------------------------+
+  |  [          ADD NEW PATIENT          ]           |
+  +--------------------------------------------------+
+  |  SELECT EXISTING PATIENT                         |
+  |  [ Patient A (Select from Dropdown)    \/ ]      |
+  |  [        SELECT THIS PATIENT          ]       |
+  +--------------------------------------------------+
+  |  REMOVE PATIENT (DANGER ZONE)                    |
+  |  [ Patient A (Select from Dropdown)    \/ ]      |
+  |  [     PERMANENTLY REMOVE PATIENT      ]       |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   [ADD NEW PATIENT] (Button):
+    - Takes you to the dedicated 'Add New Patient' page where you can enter
+      the details for a new patient.
+
+*   SELECT EXISTING PATIENT:
+    - Use the dropdown menu to see a list of all patients who have past reports.
+    - [SELECT THIS PATIENT]: Selects the chosen patient from the list and
+      returns to the Main Dashboard.
+
+*   REMOVE PATIENT:
+    - A separate, high-visibility section to prevent accidental deletion.
+    - Use the dedicated dropdown to choose the patient to be removed.
+    - [PERMANENTLY REMOVE PATIENT]: Deletes the selected patient and ALL their
+      associated reports from the device's memory. This action is irreversible.
+
+================================================================================
+
+5. SECTION 4: ADD NEW PATIENT PAGE
+----------------------------------
+This page is dedicated to entering the information for a new patient.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 ADD NEW PATIENT                  |
+  +--------------------------------------------------+
+  |  Name: [_______________________________________] |
+  |  Age:  [___________]  Nationality: [___________] |
+  |  Mobile: [_____________________________________] |
+  |  Doctor: [_____________________________________] |
+  |  [       SAVE & SELECT PATIENT         ]       |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Patient Form: Fill in the required details for the new patient, including
+    their mobile number, and the doctor's name.
+*   [SAVE & SELECT PATIENT]: Saves the new patient's information, automatically
+    selects them for the upcoming operation, and redirects you back to the
+    Main Dashboard.
+
+================================================================================
+
+6. SECTION 5: CONFIGURATION & SETTINGS
+--------------------------------------
+This page allows fine-tuning of the device's operational and safety parameters.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                  CONFIGURATION                   |
+  +--------------------------------------------------+
+  | Screen Rotation (s): [ 5 ] [SET]                 |
+  +--------------------------------------------------+
+  | Oscillation Time (ms): [ 1000 ] [SAVE]           |
+  +--------------------------------------------------+
+  | Manual Oscillation (ms)                          |
+  | CW: [ 500 ] CCW: [ 500 ] [SAVE OSCILLATION]       |
+  +--------------------------------------------------+
+  | Safety Thresholds                                |
+  | Max I (A): [ 2.5 ] Min V (V): [ 3.2 ] [SAVE]      |
+  +--------------------------------------------------+
+  | Graft Sensitivity                                |
+  | Spike (A): [ 0.04 ] Hyst (A): [ 0.02 ] [SAVE]     |
+  +--------------------------------------------------+
+  | Engineering Mode: [ TOGGLE DEBUG ]               |
+  +--------------------------------------------------+
+  | DANGER ZONE: [ RESET TO FACTORY ]                |
+  +--------------------------------------------------+
+  | Customization: [ EDIT REPORT TEMPLATE ]          |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Screen Rotation: Sets how many seconds the onboard TFT display shows one
+    screen before cycling to the next (e.g., Drive -> Energy -> Network).
+
+*   Oscillation Time: For the automatic 'OSCILLATE' mode, this sets the total
+    duration of one full back-and-forth cycle.
+
+*   Manual Oscillation Durations: Sets the specific time for Clockwise (CW) and
+    Counter-Clockwise (CCW) rotation within the oscillation cycle.
+
+*   Safety Thresholds:
+    - Max I (A): The maximum current the motor can draw before the safety
+      system halts operation. Protects the motor and electronics.
+    - Min V (V): The battery voltage at which the system will halt to prevent
+      damage to the battery cell.
+
+*   Graft Sensitivity:
+    - Spike (A): The increase in current (Amps) above the baseline required to
+      register a graft. A lower value is more sensitive.
+    - Hyst (A): The amount the current must drop *below* the spike threshold
+      before the system can detect another graft. Prevents double-counting.
+
+*   Engineering Mode: [TOGGLE DEBUG] disables the safety systems (Overcurrent
+    and Low Voltage). A warning appears on the device screen. FOR BENCH
+    TESTING ONLY.
+
+*   DANGER ZONE: [RESET TO FACTORY] erases all user settings, saved WiFi
+    networks, and graft counts, restoring the device to its original state.
+
+*   Customization: [EDIT REPORT TEMPLATE] takes you to a page where you can
+    edit the HTML code of the final report and upload a custom logo.
+
+================================================================================
+
+7. SECTION 6: DIAGNOSTICS (DETAILED READINGS)
+---------------------------------------------
+A real-time diagnostics panel for monitoring the system's electrical state.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                     READINGS                     |
+  +--------------------------------------------------+
+  | VOLTAGE: [ 4.1V ] CURRENT: [ 0.3A ] POWER: [ 1.2W ]|
+  +--------------------------------------------------+
+  | BATTERY: [ 95% ]   ACTUAL RPM: [ 1980 ]          |
+  +--------------------------------------------------+
+  | BASELINE I: [ 0.28A ]                            |
+  | [ RE-CALIBRATE ]                                 |
+  +--------------------------------------------------+
+  | WIFI MODE: [ AP ]   IP ADDR: [ 192.168.4.1 ]     |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   VOLTAGE / CURRENT / POWER: Live readings from the MAX471 sensor.
+*   BATTERY / ACTUAL RPM: The calculated battery percentage and motor speed.
+*   BASELINE I: The motor's idle current draw (in the air). This is the
+    reference point for graft detection.
+*   [RE-CALIBRATE]: Critical function. Run the motor in the air and press this
+    button to re-measure the baseline current. Do this whenever you change the
+    motor speed or attach a new tool.
+*   WIFI MODE / IP ADDR: Shows if the device is in Access Point (AP) or Station
+    (STA) mode and its current IP address.
+
+================================================================================
+
+8. SECTION 7: REPORT ARCHIVE
+----------------------------
+This page lists all previously saved surgical reports.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                  REPORT ARCHIVE                  |
+  +--------------------------------------------------+
+  | - [ Patient_A_167...json ] --------------- [ X ] |
+  | - [ Patient_B_167...json ] --------------- [ X ] |
+  | - [ Patient_C_167...json ] --------------- [ X ] |
+  |                                                  |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Report List: Each item is a link to a saved report. Clicking it opens the
+    printable HTML report in a new browser tab.
+*   [X] (Delete Button): Permanently deletes the associated report file from
+    the device's memory.
+
+================================================================================
+
+9. SECTION 8: WIFI SETUP
+------------------------
+Configure the device to connect to an existing WiFi network (e.g., your clinic's).
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                    WIFI SETUP                    |
+  +--------------------------------------------------+
+  | [ SCAN NETWORKS ] [ HIDDEN SSID ]                |
+  | [ Clinic_WiFi (Select from Dropdown)   \/ ]      |
+  | SSID: [_______________________________________]  |
+  | Pass: [_______________________________________]  |
+  | [           SAVE & RESTART              ]        |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   [SCAN NETWORKS]: Searches for nearby WiFi networks and populates the dropdown.
+*   [HIDDEN SSID]: Allows you to manually type the name of a hidden network.
+*   SSID / Password: Enter the credentials for the network you want to join.
+*   [SAVE & RESTART]: Saves the credentials to the device's memory and reboots
+    it to attempt connection. If successful, the device will be accessible on
+    your local network, not just its own AP.
+
+================================================================================
+
+10. SECTION 9: TEMPLATE EDITOR
+-----------------------------
+Customize the look and content of the final generated reports.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 TEMPLATE EDITOR                  |
+  +--------------------------------------------------+
+  | REPORT LOGO                                      |
+  | [ Choose File ] [ UPLOAD LOGO ]                  |
+  +--------------------------------------------------+
+  | REPORT HTML TEMPLATE                             |
+  | +----------------------------------------------+ |
+  | | <!DOCTYPE html>                             | |
+  | | <body>                                       | |
+  | | ...                                          | |
+  | +----------------------------------------------+ |
+  | [ SAVE TEMPLATE ]                                |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   REPORT LOGO: Upload a JPG image to be used as the logo at the top of the
+    HTML report.
+*   REPORT HTML TEMPLATE: A text editor containing the raw HTML code for the
+    report. Advanced users can modify this to change the layout, add fields,
+    or alter the styling.
+*   [SAVE TEMPLATE]: Saves any changes made to the HTML code.
+
+================================================================================
+              (c) 2024 EL-BASEET INDUSTRIAL SOLUTIONS - V1.0
+================================================================================
+
+11. SECTION 10: ONBOARD DISPLAY & PHYSICAL BUTTONS
+--------------------------------------------------
+The device is equipped with a built-in color TFT display and two physical
+buttons on the side of the TTGO board. This interface provides at-a-glance
+telemetry and basic control without needing the web interface.
+
+PHYSICAL BUTTONS:
+The TTGO board has two buttons, typically located near the USB-C port.
+
+**Important:** The button functions are context-aware. They behave differently
+depending on whether the device is in "Normal Mode" or "Oscillation Mode".
+
+--- [ DUAL BUTTON PRESS ] ---
+
+*   **Long Press (Both Buttons):** Toggles between **Normal Mode** and **Oscillation Mode**.
+    A confirmation message will appear on the screen.
+
+--- [ NORMAL MODE CONTROLS ] ---
+
+*   **BUTTON A (Top Button, near screen)**
+    -   **Short Press:** Decrease motor speed.
+    -   **Long Press:** Pause the current operation.
+
+*   **BUTTON B (Bottom Button, near USB port)**
+    -   **Short Press:** Increase motor speed.
+    -   **Long Press:**
+        - If the operation is IDLE, this will **Start** a new operation.
+        - If the operation is PAUSED, this will **Resume** the operation.
+
+--- [ OSCILLATION MODE CONTROLS ] ---
+
+*   **BUTTON A (Top Button, near screen)**
+    -   **Short Press:** Increase Counter-Clockwise (CCW) rotation time.
+    -   **Long Press:** Decrease Counter-Clockwise (CCW) rotation time.
+
+*   **BUTTON B (Bottom Button, near USB port)**
+    -   **Short Press:** Increase Clockwise (CW) rotation time.
+    -   **Long Press:** Decrease Clockwise (CW) rotation time.
+
+--- [ SCREEN CYCLING ] ---
+
+The original firmware may have used a button to cycle screens. In the current
+version, the screens cycle automatically based on the "Screen Rotation" timer
+set in the web interface's Configuration page.
+
+--------------------------------------------------------------------------------
+
+DISPLAY SCREENS:
+The onboard display has multiple screens you can cycle through using Button A.
+
+--- [ SCREEN 1: SURGICAL DASHBOARD ] ---
+This is the default screen, focused on core operational data.
+
+  +--------------------------------------+
+  | <> SURGICAL DASH         [|||||] 95% |
+  |--------------------------------------|
+  | SPD              200                 |
+  | RPM              1980                |
+  |--------------------------------------|
+  | GRAFT: 125                       FWD |
+  +--------------------------------------+
+
+*   SPD: The current speed setpoint (0-255).
+*   RPM: The real-time estimated motor speed.
+*   Footer: Shows the current Graft Count. If a patient is selected, it will
+    show the patient's name instead.
+*   Direction: Shows "FWD" for forward or "REV" for reverse.
+
+--- [ SCREEN 2: ENERGY STATUS ] ---
+Provides detailed electrical and battery information.
+
+  +--------------------------------------+
+  | <> ENERGY STATUS         [|||||] 95% |
+  |--------------------------------------|
+  | Voltage:          4.10 V             |
+  | Current:          0.35 A             |
+  | Power:            1.4 W              |
+  | [====================   ]            |
+  +--------------------------------------+
+
+*   Voltage, Current, Power: Live readings from the power sensor.
+*   Battery Bar: A visual representation of the remaining battery life.
+
+--- [ SCREEN 3: NETWORK STATUS ] ---
+Displays information about the device's WiFi connection.
+
+  +--------------------------------------+
+  | <> NET STATUS            [|||||] 95% |
+  |--------------------------------------|
+  | Mode:             AP                 |
+  | IP:               192.168.4.1        |
+  | Users:            1                  |
+  +--------------------------------------+
+
+*   Mode: "AP" (Access Point) or "STA" (Station, connected to your clinic's WiFi).
+*   IP: The IP address to access the web interface.
+*   Users: The number of devices currently connected to the web interface.
+
+--- [ SCREEN 4: OSCILLATION ] ---
+Shows the settings for the motor's oscillation mode.
+
+  +--------------------------------------+
+  | <> OSCILLATION           [|||||] 95% |
+  |--------------------------------------|
+  | Mode:             ACTIVE             |
+  | CW Time:          500 ms             |
+  | CCW Time:         500 ms             |
+  +--------------------------------------+
+
+*   Mode: "ACTIVE" if oscillation is enabled, "INACTIVE" otherwise.
+*   CW/CCW Time: The configured duration for clockwise and counter-clockwise turns.
+
+--- [ SCREEN 5: PATIENT INFO ] ---
+Displays the details of the currently selected patient.
+
+  +--------------------------------------+
+  | <> PATIENT INFO          [|||||] 95% |
+  |--------------------------------------|
+  | Name:             John Doe           |
+  | Age:              42                 |
+  | Nat.:             American           |
+  +--------------------------------------+
+
+*   Displays the Name, Age, and Nationality of the patient selected via the web UI.
+
+--------------------------------------------------------------------------------
+
+SPECIAL DISPLAY STATES:
+
+*   ALARM SCREEN: If a safety system is triggered (Overcurrent or Low Battery),
+    the screen will be overridden with a large red warning like "OVERCURRENT"
+    or "LOW BATTERY" and "SYSTEM HALTED".
+
+*   CONFIRMATION MESSAGE: When you perform an action on the web interface (e.g.,
+    change speed), a confirmation like "Speed: 200" will briefly appear on the
+    display.
+
+*   GRAFT FLASH: When a graft is detected, the screen will flash white with the
+    new total count for a fraction of a second, providing instant visual feedback.
+
+*   DEBUG MODE: If Engineering/Debug mode is enabled, a flashing yellow "DEBUG"
+    tag will appear in the top-right corner as a constant reminder that safety
+    systems are off.

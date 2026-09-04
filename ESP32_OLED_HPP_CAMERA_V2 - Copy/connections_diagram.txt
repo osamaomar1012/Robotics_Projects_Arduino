@@ -1,0 +1,110 @@
+================================================================================
+SYSTEM CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (ESP32-WROVER-E)
+================================================================================ 
+A. ESP32-WROVER-E (PROFESSIONAL ARCHITECTURE)
+    +-----------------------+           +-----------------------+
+    |     18650 BATTERY     |           |        DC MOTOR       |
+    |  [+]             [-]  |           |      (M1)   (M2)      |
+    +---|---------------|---+           +-------|-------|-------+
+        |               |                       |       |
+        |               |               +-------|-------|-------+
+        |               |               |       |       |       |
+    +---V--------------+`-----------+   |   +---V-------V-------+
+    |      MAX471      |            |   |   |      DRV8833      |
+    | (V/I SENSOR)     |            |   |   |   (MOTOR DRIVER)  |
+    +------------------+            |   |   +-------------------+
+    | [RS+] Source (+) <------------+   |   | [VCC] Power In  <--[From MAX471 RS-]
+    | [RS-] Load (+)   -----------------+   | [GND] Ground      |
+    | [VT]  Voltage Out ---[GPIO 33]        | [IN1] PWM/Speed <--[GPIO 2]
+    | [AT]  Current Out ---[GPIO 39]        | [IN2] Direction <--[GPIO 13]
+    | [GND] Common GND  ---|                | [OUT1] Terminal A->[Motor M1]
+    +-------------------+  |                | [OUT2] Terminal B->[Motor M2]
+                           |                +-------------------+
+                           |
+    +----------------------V------------------------------------+
+    |               ESP32-WROVER-E CORE MODULE                  |
+    |  [BAT] <--------------------------- (Battery Positive +)  |
+    |  [GND] <-------------+------------- (Battery Negative -)  |
+    |  [33]  <------------- (MAX471 VT)                         |
+    |  [39]  <------------- (MAX471 AT)                         |
+    |                                                           |
+    |  [2]   -------------> (DRV8833 IN1)                       |
+    |  [13]  -------------> (DRV8833 IN2)                       |
+    |                                                           |
+    |  [OLED DEDICATED BUS]                                     |
+    |  [GPIO 14] -> OLED SDA                                    |
+    |  [GPIO 15] -> OLED SCL                                    |
+    |                                                           |
+    |  [CAMERA BUS - D0-D7, XCLK, PCLK, VSYNC, HREF, SIOD, SIOC]|
+    |  [32]  -------------> (CAM PWDN)                          |
+    +-----------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+WIRING TABLE REFERENCE:
+--------------------------------------------------------------------------------
+MAX471 SENSOR:            | WROVER PIN | NOTES
+--------------------------|------------|----------------------------------------
+  RS+ (Positive Input)    | BATT (+)   | From 18650 Battery Positive
+  RS- (Positive Output)   | DRV VCC    | To DRV8833 VCC
+  VT  (Voltage Signal)    | GPIO 33    | Analog Input (ADC1: WiFi/Camera Immune)
+  AT  (Current Signal)    | GPIO 39    | Analog Input (ADC1: WiFi/Camera Immune)
+  GND                     | GND        | Common System Ground
+
+DRV8833 MOTOR DRIVER:     | WROVER PIN | NOTES
+--------------------------|------------|----------------------------------------
+  VCC                     | MAX RS-    | Clean power from Sensor RS-
+  GND                     | GND        | Common Ground
+  IN1 (PWM Speed)         | GPIO 2     | LEDC Channel 0
+  IN2 (Direction)         | GPIO 13    | LEDC Channel 1
+  OUT1 / OUT2             | MOTOR      | Terminals for Surgical DC Motor
+  EEP / SLP               | 3.3V       | Tied HIGH for continuous bridge enable
+
+OLED DISPLAY (SSD1306):   | WROVER PIN | NOTES
+--------------------------|------------|----------------------------------------
+  SDA (Data)              | GPIO 14    | Dedicated I2C SDA
+  SCL (Clock)             | GPIO 15    | Dedicated I2C SCL
+  VCC / GND               | 3.3V / GND | OLED power input
+
+--------------------------------------------------------------------------------
+POWER PIN CONFIGURATION:
+--------------------------------------------------------------------------------
+WROVER-E DEV BOARD requires stable 5V (on the 5V pin) or direct 3.3V power.
+The OV2640 camera sensor consumes ~70mA; triple-buffering in PSRAM requires
+stable voltage rails to prevent jitter in the graft counter.
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+EMERGENCY FLASHING MODE (If Flash Chip Communication Fails):
+--------------------------------------------------------------------------------
+1. Jumper GPIO 0  to GND (Enters Download Mode)
+2. Jumper GPIO 12 to GND (Forces 3.3V Flash Voltage - CRITICAL for WROVER)
+3. Press EN (RESET) Button
+4. Set Arduino IDE Upload Speed to 115200
+--------------------------------------------------------------------------------
+
+TECHNICAL NOTES:
+--------------------------------------------------------------------------------
+1. COMMON GROUND: The Battery (-), ESP32 GND, MAX471 GND, and DRV8833 GND must
+   all be connected together for the signal references to work correctly.
+
+2. VOLTAGE LIMITS: The MAX471 outputs a max of 3V when the source voltage is
+   15V (1/5 ratio). At 4.2V (fully charged 18650), VT will output ~0.84V, 
+   which is well within the ESP32's 3.3V ADC limit.
+   
+3. ADC1 RELIABILITY: Pins 32-39 are ADC1. We use 33 and 39 for sensors. 
+   This ensures 100% telemetry accuracy during high-speed video streaming.
+
+4. CAMERA PWDN: GPIO 32 is used to control camera power. The software pulls
+   this LOW during setup to enable the sensor.
+
+6. BOOT STRAPPING: GPIO 12 (MTDI) must be LOW during boot for 3.3V Flash.
+   If flashing fails, tie GPIO 12 to GND.
+
+7. CURRENT LIMITS: The MAX471 outputs 1V per 1A. Ensure your motor does not 
+   exceed 3A peak, or you may exceed the ESP32's 3.3V ADC limit on the AT pin.
+
+8. SIGNAL INTEGRITY: For the PWM lines, keep wires short to 
+   minimize electromagnetic interference (EMI) that could affect the 
+   analog readings on pins 33 and 35.
+
+10. PRO-GRADE UPGRADE: For mission-critical surgical reliability, use an 
+    external I2C ADC (e.g., ADS1115) connected to Pins 2 and 4.

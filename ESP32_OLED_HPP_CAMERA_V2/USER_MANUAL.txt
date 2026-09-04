@@ -1,0 +1,143 @@
+================================================================================
+               EL-BASEET HAIR PEN-V2 - OFFICIAL USER MANUAL
+================================================================================
+     _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _
+    | || || || |   | || || || |   | || || || |   | || || || |   | || || || |
+    | || || || |   | || || || |   | || || || |   | || || || |   | || || || |
+    |_||_||_||_|   |_||_||_||_|   |_||_||_||_|   |_||_||_||_|   |_||_||_||_|
+
+    Professional Grade Hair Planting Surgical Assistant & Camera Follicle Counter
+    Created by: Eng. Osama Omar
+================================================================================
+
+1. SYSTEM OVERVIEW
+------------------
+The EL-BASEET Hair Pen-V2 is a specialized medical-grade surgical assistant 
+designed specifically for Hair Planting Surgery (FUE/FUI). It provides high-speed 
+motor precision for follicle extraction and placement, featuring real-time 
+telemetry and a proprietary current-spike detection algorithm for accurate 
+graft counting.
+
+2. HARDWARE COMPONENTS LIST
+---------------------------
+*   MCU: ESP32-WROVER-E Development Board (PSRAM Enabled)
+*   Camera: OV2640 2MP Module
+*   Motor Driver: DRV8833 Dual H-Bridge (Supports up to 2.0A peak)
+*   Sensor: MAX471 High-Side Current/Voltage Sensor (3.0A Max)
+*   ADC: ADS1115 16-Bit External ADC (I2C)
+*   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
+
+3. SYSTEM ARCHITECTURE (ASCII DIAGRAM)
+--------------------------------------
+
+      [ 18650 BATTERY ]
+             |
+             V
+      [ MAX471 SENSOR ] ----+----> [ DRV8833 DRIVER ] ----> [ MOTOR ]
+       (V/I Monitoring)     |             ^
+             |              |             | [PWM Control]
+             V (VT/AT)      |             |
+      [ ADS1115 ADC ]       |      [ ESP32 MCU ] <--- [ Web Dashboard ]
+       (16-bit I2C)         |      (Logic Center) <--- [ Camera Stream ]
+             |              |             |
+             +--------------|-------------+
+                  [I2C]     |
+
+4. WIRING SPECIFICATIONS
+------------------------
+*   MAX471 VT (Voltage) -> ADS1115 Channel A0
+*   MAX471 AT (Current) -> ADS1115 Channel A1
+*   DRV8833 IN1 (PWM)   -> GPIO 2  (LEDC Chan 0)
+*   DRV8833 IN2 (DIR)   -> GPIO 13 (LEDC Chan 1)
+*   I2C SDA / SCL       -> GPIO 14 / GPIO 15 (Shared Bus)
+*   SURGICAL LIGHT      -> GPIO 4  (System Status / Flash LED)
+
+5. CORE FEATURES
+----------------
+*   Dual WiFi Mode: Operates as an Access Point (HPP_CONTROL_V1) and a Station 
+    simultaneously for local/remote control.
+*   Graft Counter: Uses an Additive Offset Logic to detect skin penetration and 
+    follicle placement via current spikes as small as 0.01A.
+*   Adaptive Calibration: Automatically samples motor idle current after speed 
+    changes to set an accurate baseline.
+*   Surgical Soft-Start: Implements a RAMP_STEP (10 units/50ms) to provide 
+    smooth needle entry and prevent tissue trauma.
+*   Persistent Memory (NVM): Saves all user settings (Speed, Thresholds, 
+    Graft Count, WiFi) so they remain after power loss.
+*   Multitasking Engine: Uses FreeRTOS to isolate surgical safety logic 
+    on Core 1, ensuring motor protection is independent of WiFi/Camera traffic.
+*   Video Assisted Surgery: WROVER-E provides a high-bandwidth MJPEG stream 
+    directly on the web dashboard for precision placement.
+*   Surgical Illumination: Adjustable high-power LED light with safety 
+    auto-off timer (5s-300s) to prevent hardware overheating.
+
+6. SAFETY MECHANISMS
+--------------------
+*   Overcurrent Protection: Automatically halts the motor if current exceeds 
+    user-defined limit (Default: 2.5A).
+*   Low Battery Protection: Halts operation if voltage drops below 3.2V to 
+    prevent cell damage. Latched until power toggle on dashboard.
+*   Fault Reset: Clicking 'ON' in the Web Dashboard clears safety trips if 
+    electrical conditions have returned to safe levels.
+*   Engineering Debug Mode: Allows bypassing safety trips for bench testing. 
+*   Visual Alarms: Web UI shows "SYSTEM HALTED" 
+    upon safety triggers.
+*   Thermal Protection: Surgical lamp includes a user-configurable auto-off 
+    timer (Default: 30s) to protect camera sensor from LED heat.
+
+7. SURGICAL PRE-USE CHECKLIST & PRECAUTIONS
+-------------------------------------------
+1.  Sterilization: Ensure the mechanical hair pen and needles are sterilized 
+    according to medical standards before use. 
+2.  Electronics Isolation: Keep the ESP32 and Driver control box away from 
+    saline and surgical fluids.
+3.  Common Ground: Ensure Battery (-), ESP32 GND, and Driver GND are tied.
+4.  Polarity: Verify Battery (+) enters MAX471 [RS+] pin.
+5.  Motor Load: Do not exceed 3.0A continuous draw.
+6.  Firmware: Ensure "penetrationOffset" is set higher than the motor's 
+    natural noise floor (Recommended: 0.04A for skin penetration).
+7.  Mechanical: Ensure the needle is sharp and properly seated in the micro-motor.
+
+8. OPERATING INSTRUCTIONS
+-------------------------
+
+A. Initial Setup:
+   1. Power on the device.
+   2. Connect your phone to WiFi: "HPP_CONTROL_V1" (Pass: 12345678).
+   3. Open browser to 192.168.4.1.
+
+B. Reliability Feature:
+   This system leverages the ADS1115 external ADC over I2C. This completely 
+   bypasses the ESP32's internal ADC conflict with the WiFi radio, ensuring 
+   that telemetry and safety monitoring remain 100% accurate and stable 
+   even during high-resolution video streaming.
+   
+D. Surgical Light Control:
+   Access the 'SURGICAL LIGHT' button on the main dashboard. The timer 
+   can be adjusted in SETTINGS to prevent camera sensor heat-soak.
+   5. Do NOT touch the skin during this process.
+
+C. Graft/Penetration Counting:
+   The system calculates graft placement using: [Baseline Current + Offset].
+   If your baseline (air load) is 0.29A and Offset is 0.04A, any current 
+   above 0.33A registers as a follicle implantation/extraction hit.
+
+9. CONFIGURATION GUIDE (SETTINGS)
+---------------------------------
+*   Spike (A): The amount of current increase required to count a hit.
+*   Hyst (A): The amount the current must drop below the spike to reset 
+    the trigger.
+*   Max I (A): The absolute safety ceiling.
+*   Min V (V): The battery cut-off voltage.
+
+10. FACTORY RESET
+-----------------
+To clear all NVM data and restore defaults:
+1. Go to SETTINGS.
+2. Scroll to DANGER ZONE.
+3. Click "RESET TO FACTORY". 
+Note: This will also clear saved WiFi Station credentials.
+
+================================================================================
+              (c) 2024 EL-BASEET INDUSTRIAL SOLUTIONS - V2.0
+================================================================================

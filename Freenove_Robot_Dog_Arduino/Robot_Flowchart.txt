@@ -1,0 +1,124 @@
+================================================================================
+             FREENOVE ROBOT DOG - FIRMWARE FLOW & PRIORITY LOGIC
+================================================================================
+
+[ STARTUP SEQUENCE (setup) ]
+      |
+      v
+1. SERIAL & PSRAM CHECK
+      |
+      v
+2. DRIVER INIT (NVS)
+      |
+      v
+3. CAMERA INIT (Comms::Camera::begin)
+      |-- esp_camera_deinit() (Clear state)
+      |-- esp_camera_init() (20MHz XCLK, QQVGA)
+      |-- WiFi Setup: Mode WIFI_AP_STA
+      |-- WiFi.disconnect() (Clean state)
+      |-- WiFi.softAP() (Channel 1)
+      |-- esp_wifi_set_ps(WIFI_PS_NONE) (Temp for Init)
+      |-- esp_now_init() -> Add Peer (Broadcast, IF_STA)
+      |-- Start Task: CamTask (Core 0)
+      |
+      v
+4. BLE INIT (Comms::BLE::begin)
+      |-- Init Server & Service
+      |-- Start Advertising (Interval 100ms)
+      |-- CRITICAL: esp_wifi_set_ps(WIFI_PS_MIN_MODEM)
+      |   (Enables Time Slicing for Radio Coexistence)
+      |
+      v
+5. HARDWARE INIT
+      |-- PCA9685 (Servos), Battery, Buzzer, Sonar, LEDs, Touch
+      |-- Load Calibration from NVS
+      |
+      v
+6. START MANAGERS & TASKS
+      |-- Comms::Radio::begin() (Radio State Machine)
+      |-- xTaskCreate(Motion_Task) (Core 1)
+      |-- xTaskCreate(Secondary_Task) (Core 1)
+      |
+      v
+7. ROBOT POSTURE
+      |-- Play PowerUp Melody
+      |-- Motion::standUp()
+
+
+================================================================================
+             CONNECTIVITY PRIORITY LOGIC (Runtime)
+================================================================================
+The ESP32 has 1 Radio shared by WiFi (AP/ESP-NOW) and Bluetooth (BLE).
+Priority is enforced to prevent crashes and radio conflicts.
+
+   [ INPUT SOURCES ]
+        |          |
+    (BLE App)  (Remote)
+        |          |
+        v          v
+   [ RADIO STATE MANAGER ] (Background Task)
+        |
+        |-- Monitors BLE::deviceConnected
+        |-- Monitors Remote Heartbeat (lastRemoteActivity)
+        |-- Plays "Request Tones" if new connection attempts
+        |   while another is active.
+        |
+        v
+   [ DATA RECEPTION CALLBACK ] (OnDataRecv)
+        |
+        |-- 1. Update Remote Heartbeat
+        |
+        |-- 2. PRIORITY CHECK:
+        |      Is BLE Connected?
+        |      [ YES ] -------------> [ IGNORE PACKET ]
+        |         |                   (Drop Remote Commands)
+        |         |
+        |      [ NO ]
+        |         |
+        |         v
+        |      [ PROCESS PACKET ]
+        |      (Parse Command -> mqMotion Queue)
+
+
+================================================================================
+             VIDEO STREAMING LOGIC (CamTask - Core 0)
+================================================================================
+
+[ CAPTURE FRAME ]
+      |
+      v
+[ CHECK DESTINATIONS ]
+      |
+      |-- A. WiFi Client (Phone App)?
+      |      [ YES ] -> Send MJPEG Stream (HTTP)
+      |
+      |-- B. ESP-NOW Remote?
+      |      Condition: (FrameRequested AND RemoteOnline AND !BLE_Connected)
+      |
+      |      [ BLE IS CONNECTED ]
+      |             |
+      |             v
+      |      [ DISABLE ESP-NOW VIDEO ]
+      |      (Save Radio Bandwidth for BLE)
+      |
+      |      [ BLE NOT CONNECTED ]
+      |             |
+      |             v
+      |      [ SEND ESP-NOW VIDEO ]
+      |      (Chunk -> Broadcast -> Delay)
+
+
+================================================================================
+             MOTION CONTROL LOGIC (Motion_Task - Core 1)
+================================================================================
+[ WAIT FOR COMMAND (mqMotion) ]
+      |
+      v
+[ PARSE ACTION ]
+   |-- MOVE/TURN -> Update Gait State -> Inverse Kinematics -> Servos
+   |-- DANCE     -> Execute Pre-programmed Routine
+   |-- CALIBRATE -> Adjust Offsets -> Save NVS
+      |
+      v
+[ IDLE TIMEOUT ]
+   |-- If no activity > 10s -> Sit Down (Save Power)

@@ -1,0 +1,146 @@
+================================================================================
+               FREENOVE ROBOT DOG - FIRMWARE ARCHITECTURE ANALYSIS
+================================================================================
+
+1. SYSTEM BOOT SEQUENCE (setup() in Freenove_Robot_Dog_Arduino.ino)
+--------------------------------------------------------------------------------
+[Power On]
+    |
+    v
+[Serial Init]      -> Debug output @ 115200 baud
+    |
+    v
+[PSRAM Check]      -> Verify external RAM for Camera Framebuffers (Critical)
+    |
+    v
+[Driver Init]      -> Initialize Hardware Abstraction Layer
+    |-- NVS        -> Load Preferences (Calibration, LED Config)
+    |-- PCA9685    -> I2C Servo Driver (Set 50Hz PWM, Soft Start)
+    |-- Battery    -> ADC Configuration
+    |-- Buzzer     -> LEDC PWM Timer Setup
+    |-- Sonar      -> GPIO Setup (Mutex creation for shared pins)
+    |-- LEDs       -> WS2812B Strip & Built-in LED
+    |-- Touch      -> Capacitive Touch Sensor (Threshold calibration)
+    |
+    v
+[Comms Init]       -> Start Communication Stacks
+    |-- Camera     -> Init OV2640, Flip settings
+    |-- WiFi/ESP-NOW -> Setup AP Mode (Chan 1) + ESP-NOW Peer
+    |-- BLE        -> Start BLE Server & Advertising
+    |
+    v
+[Task Creation]    -> Spin up FreeRTOS Tasks (See Section 2)
+    |
+    v
+[Robot Startup]
+    |-- Play Melody (Power Up)
+    |-- Motion::standUp() -> Move servos to neutral standing pose
+    |
+    v
+[Main Loop]        -> Enter RTOS Scheduler
+
+
+2. MULTI-CORE TASK DISTRIBUTION (FreeRTOS)
+--------------------------------------------------------------------------------
+The ESP32 has 2 Cores. The firmware splits high-bandwidth I/O (Video) from 
+real-time control (Motion) to ensure stability.
+
++------------------------------------------------------------------------------+
+|                                CORE 0 (PRO_CPU)                              |
+|------------------------------------------------------------------------------|
+| Task Name      | Priority | Functionality                                    |
+|----------------|----------|--------------------------------------------------|
+| CamTask        | 2 (Med)  | [Camera::taskServer]                             |
+|                |          | - Captures Video Frames (esp_camera_fb_get)      |
+|                |          | - Splits frame into chunks                       |
+|                |          | - Broadcasts via ESP-NOW (Low Latency)           |
+|                |          | - Streams via HTTP/TCP (WiFi App)                |
+|----------------|----------|--------------------------------------------------|
+| IDLE / WiFi    | 0 (Low)  | - Internal WiFi Stack (LwIP)                     |
+|                |          | - ESP-NOW Protocol Stack                         |
++------------------------------------------------------------------------------+
+
++------------------------------------------------------------------------------+
+|                                CORE 1 (APP_CPU)                              |
+|------------------------------------------------------------------------------|
+| Task Name      | Priority | Functionality                                    |
+|----------------|----------|--------------------------------------------------|
+| Motion_Task    | 5 (High) | [Motion::taskMotion]                             |
+|                |          | - Inverse Kinematics (IK) Calculations           |
+|                |          | - Gait Generation (Trot)                         |
+|                |          | - Servo Updates (I2C)                            |
+|                |          | - Command Parsing (Movement)                     |
+|----------------|----------|--------------------------------------------------|
+| loop()         | 1 (Low)  | [Main Arduino Loop]                              |
+|                |          | - Command Parsing (Settings/Info)                |
+|                |          | - BLE Data Upload                                |
+|                |          | - Serial Input Debugging                         |
+|----------------|----------|--------------------------------------------------|
+| Secondary_Task | 1 (Low)  | [loopSecondary]                                  |
+|                |          | - Battery Monitoring (ADC)                       |
+|                |          | - RGB LED Effects (Rainbow, Breathing)           |
+|                |          | - Sonar Obstacle Avoidance Logic                 |
+|                |          | - Buzzer Melodies                                |
+|                |          | - Touch Sensor Polling                           |
+|----------------|----------|--------------------------------------------------|
+| CmdServer      | 1 (Low)  | [Camera::taskCmdServer]                          |
+|                |          | - Listens for TCP commands from Phone App        |
++------------------------------------------------------------------------------+
+
+
+3. DATA FLOW & INTER-TASK COMMUNICATION
+--------------------------------------------------------------------------------
+[Input Sources]
+    |
+    +-- WiFi (TCP Port 5000) --> [Queue: mqMotion / mqInfo]
+    +-- ESP-NOW (Remote)     --> [Queue: mqMotion] (via OnDataRecv callback)
+    +-- BLE (UART Service)   --> [Queue: mqMotion / mqInfo]
+    +-- Serial (USB)         --> [Queue: mqMotion / mqInfo]
+    +-- Sensors (Touch/Sonar)--> [Queue: mqMotion] (Auto-actions)
+
+[Processing]
+    |
+    v
+[Motion Task] <--(Reads mqMotion)--
+    |-- Parse Command (e.g., "F#0#20#0#10#")
+    |-- Update Global State (Stride, Rotation, Speed)
+    |-- Calculate IK (Inverse Kinematics) for 4 Legs
+    |-- Send Angles to PCA9685 Driver
+
+[Feedback]
+    |
+    +-- Battery/Sonar Data --> [Queue: mqTx] --> BLE/WiFi --> App
+    +-- Video Frame        --> Direct ESP-NOW Broadcast / WiFi Stream
+
+
+4. RESOURCE CONSUMPTION ESTIMATES (ESP32-WROVER)
+--------------------------------------------------------------------------------
+
+[FLASH ROM] (Program Storage)
+   - Total: 4MB (Standard)
+   - Used:  ~1.3MB - 1.5MB
+   - Content: Firmware code, WiFi Stack, BLE Stack, Partition Table, NVS.
+
+[INTERNAL SRAM] (Fast Memory)
+   - Total: 520KB
+   - Static Allocations: ~150KB (Globals, Stacks)
+   - Heap (Dynamic):     ~200KB (Available for OS, Queues, WiFi buffers)
+   - Usage: High during WiFi/BLE connection establishment.
+
+[EXTERNAL PSRAM] (Slow Large Memory)
+   - Total: 4MB
+   - Used:  ~1MB - 3MB (Depending on Resolution)
+   - Usage: 
+     - Camera Framebuffers (2x QVGA/QQVGA buffers)
+     - Large allocations that don't fit in SRAM.
+     * CRITICAL: Without PSRAM, high-res video streaming will crash the robot.
+
+[CPU LOAD]
+   - Core 0 (Video/WiFi):
+     - Idle: < 5%
+     - Streaming (WiFi+ESPNOW): 60% - 90% (Heavy I/O & Memory Copy)
+   
+   - Core 1 (Motion/Logic):
+     - Idle: < 5%
+     - Walking (IK Calculation): 15% - 25% (Floating point math)
+     - Note: Plenty of headroom left for additional sensors (IMU, Lidar, etc).

@@ -1,0 +1,134 @@
+================================================================================
+               EL-BASEET HAIR PEN-V1 - OFFICIAL USER MANUAL
+================================================================================
+     _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _
+    | || || || |   | || || || |   | || || || |   | || || || |   | || || || |
+    | || || || |   | || || || |   | || || || |   | || || || |   | || || || |
+    |_||_||_||_|   |_||_||_||_|   |_||_||_||_|   |_||_||_||_|   |_||_||_||_|
+
+    Professional Grade Hair Planting Surgical Assistant & Follicle Counter
+    Created by: Eng. Osama Omar
+================================================================================
+
+1. SYSTEM OVERVIEW
+------------------
+The EL-BASEET Hair Pen-V1 is a specialized medical-grade surgical assistant 
+designed specifically for Hair Planting Surgery (FUE/FUI). It provides high-speed 
+motor precision for follicle extraction and placement, featuring real-time 
+telemetry and a proprietary current-spike detection algorithm for accurate 
+graft counting.
+
+2. HARDWARE COMPONENTS LIST
+---------------------------
+*   MCU: TTGO ESP32 (Integrated SSD1306 0.96" OLED)
+*   Motor Driver: DRV8833 Dual H-Bridge (Supports up to 2.0A peak)
+*   Sensor: MAX471 High-Side Current/Voltage Sensor (3.0A Max)
+*   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
+*   Actuator: Precision Surgical Micro-Motor (DC Brushed)
+
+3. SYSTEM ARCHITECTURE (ASCII DIAGRAM)
+--------------------------------------
+
+      [ 18650 BATTERY ]
+             |
+      [ MAX471 SENSOR ] <--------+
+       (V/I Monitoring)          |
+             |                   | [V/I Signals]
+             +-------------------|-------+
+             |                   |       |
+      [ DRV8833 DRIVER ]         |   [ ESP32 MCU ] <--- [ Surgical Dashboard ]
+      (H-Bridge Control)         |   (Logic Center)
+             |                   |       |
+      [ SURGICAL MOTOR ]         |   [ OLED DISPLAY ]
+                                 |   (Local Feedback)
+                                 +-------+
+
+4. WIRING SPECIFICATIONS
+------------------------
+*   MAX471 VT (Voltage) -> ESP32 GPIO 34
+*   MAX471 AT (Current) -> ESP32 GPIO 32
+*   DRV8833 IN1 (PWM)   -> ESP32 GPIO 13
+*   DRV8833 IN2 (DIR)   -> ESP32 GPIO 12
+*   OLED SDA/SCL        -> Internal (GPIO 5/4)
+
+5. CORE FEATURES
+----------------
+*   Dual WiFi Mode: Operates as an Access Point (HPP_CONTROL_V1) and a Station 
+    simultaneously for local/remote control.
+*   Graft Counter: Uses an Additive Offset Logic to detect skin penetration and 
+    follicle placement via current spikes as small as 0.01A.
+*   Adaptive Calibration: Automatically samples motor idle current after speed 
+    changes to set an accurate baseline.
+*   Surgical Soft-Start: Implements a RAMP_STEP (10 units/50ms) to provide 
+    smooth needle entry and prevent tissue trauma.
+*   Persistent Memory (NVM): Saves all user settings (Speed, Thresholds, 
+    Graft Count, WiFi) so they remain after power loss.
+*   OLED Multi-Screen:
+    - Screen 0: Surgical Dashboard (Speed, RPM, Graft Counter).
+    - Screen 1: Energy Status (Live V, A, W, and Battery %).
+    - Screen 2: Network Status (IP Address and connected users).
+
+6. SAFETY MECHANISMS
+--------------------
+*   Overcurrent Protection: Automatically halts the motor if current exceeds 
+    user-defined limit (Default: 2.5A).
+*   Low Battery Protection: Halts operation if voltage drops below 3.2V to 
+    prevent cell damage.
+*   Engineering Debug Mode: Allows bypassing safety trips for bench testing. 
+    Displays a flashing "DEBUG" warning on OLED.
+*   Visual Alarms: OLED flashes "!!! ALARM !!!" and Web UI shows "SYSTEM HALTED" 
+    upon safety triggers.
+
+7. SURGICAL PRE-USE CHECKLIST & PRECAUTIONS
+-------------------------------------------
+1.  Sterilization: Ensure the mechanical hair pen and needles are sterilized 
+    according to medical standards before use. 
+2.  Electronics Isolation: Keep the ESP32 and Driver control box away from 
+    saline and surgical fluids.
+3.  Common Ground: Ensure Battery (-), ESP32 GND, and Driver GND are tied.
+4.  Polarity: Verify Battery (+) enters MAX471 [RS+] pin.
+5.  Motor Load: Do not exceed 3.0A continuous draw.
+6.  Firmware: Ensure "penetrationOffset" is set higher than the motor's 
+    natural noise floor (Recommended: 0.04A for skin penetration).
+7.  Mechanical: Ensure the needle is sharp and properly seated in the micro-motor.
+
+8. OPERATING INSTRUCTIONS
+-------------------------
+
+A. Initial Setup:
+   1. Power on the device.
+   2. Connect your phone to WiFi: "HPP_CONTROL_V1" (Pass: 12345678).
+   3. Open browser to 192.168.4.1.
+
+B. Calibration (CRITICAL):
+   Calibration ensures the system ignores air-load and only counts skin hits.
+   1. Ensure the hair pen needle is spinning freely in the air.
+   2. Go to "READINGS" page.
+   3. Click "RE-CALIBRATE".
+   4. The system will wait for target speed, then sample for 2 seconds.
+   5. Do NOT touch the skin during this process.
+
+C. Graft/Penetration Counting:
+   The system calculates graft placement using: [Baseline Current + Offset].
+   If your baseline (air load) is 0.29A and Offset is 0.04A, any current 
+   above 0.33A registers as a follicle implantation/extraction hit.
+
+9. CONFIGURATION GUIDE (SETTINGS)
+---------------------------------
+*   Spike (A): The amount of current increase required to count a hit.
+*   Hyst (A): The amount the current must drop below the spike to reset 
+    the trigger.
+*   Max I (A): The absolute safety ceiling.
+*   Min V (V): The battery cut-off voltage.
+
+10. FACTORY RESET
+-----------------
+To clear all NVM data and restore defaults:
+1. Go to SETTINGS.
+2. Scroll to DANGER ZONE.
+3. Click "RESET TO FACTORY". 
+Note: This will also clear saved WiFi Station credentials.
+
+================================================================================
+              (c) 2024 EL-BASEET INDUSTRIAL SOLUTIONS - V1.0
+================================================================================
