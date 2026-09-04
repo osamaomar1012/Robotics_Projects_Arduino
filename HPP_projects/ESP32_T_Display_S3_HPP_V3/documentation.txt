@@ -1,0 +1,82 @@
+Created by Eng.Osama Omar
+Senior Integration Lead
+Cairo,Egypt
+================================================================================
+PROJECT: ESP32_TTGO_HPP_V2 (Motor Control & Battery Telemetry)
+VERSION: 3.0 - LILYGO T-DISPLAY-S3 HARDWARE INTEGRATION
+================================================================================
+
+1. HARDWARE PLATFORM UPGRADE (V3.0):
+------------------------------------
+The system has migrated from the legacy classic ESP32 TTGO board to the ultra-powerful 
+**LILYGO T-Display-S3** board, which integrates:
+- MCU: ESP32-S3 (Xtensa Dual-Core LX7 running at 240MHz with vector instructions)
+- Display: 1.9" diagonal, 170x320 high-definition color LCD with 8-bit parallel interface (ST7789V)
+- Power Enable Gate: GPIO 15 (Must be driven HIGH in code to keep the LCD and board powered!)
+
+2. PIN MAPPING (LILYGO T-Display-S3):
+-------------------------------------
+FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
+-----------------|------|------------------|------------------------------------
+LCD Screen Power | 15   | -                | Peripheral Power Enable (Must be HIGH!)
+LCD Screen Pins  | -    | -                | Parallel 8-Bit Interface (configured in TFT_eSPI)
+BOOT Button (L)  | 0    | -                | Left Button - Active LOW (BOOT)
+KEY Button (R)   | 14   | -                | Right Button - Active LOW
+MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via DRV8833 OUT1
+MOTOR_IN2 (PWM)  | 12   | White (Motor -)  | Controls Speed/Dir via DRV8833 OUT2
+MAX471 VT (Volt) | 1    | -                | Analog Input (1V out = 5V in) - ADC1_CH0
+MAX471 AT (Amp)  | 2    | -                | Analog Input (1V out = 1A in) - ADC1_CH1
+Internal VBAT    | 4    | -                | Onboard battery divider - ADC1_CH3
+Encoder Chan A   | 10   | Yellow           | Quadrature Channel A (Interrupt) - GPIO 10
+Encoder Chan B   | 11   | Green            | Quadrature Channel B (State Pin) - GPIO 11
+Encoder VCC      | 3V3  | Black            | Encoder Power (3.3V)
+Encoder GND      | GND  | Blue             | Encoder Ground Reference
+
+3. HARDWARE CONNECTION FLOW (V3.0):
+------------------------------------
+18650 LI-ION CELL:
+  Positive (+)   -> MAX471 SENSOR [RS+] AND T-Display-S3 Bat connector (+)
+  Negative (-)   -> ESP32 GND (Common Ground)
+
+MAX471 SENSOR:
+  [RS+]          -> Battery Positive (+)
+  [RS-]          -> DRV8833 VCC
+  [GND]          -> Common Ground
+  [VT]           -> T-Display-S3 GPIO 1
+  [AT]           -> T-Display-S3 GPIO 2
+
+DRV8833 MOTOR DRIVER:
+  [VCC]          -> MAX471 RS-
+  [GND]          -> Common Ground
+  [IN1]          -> T-Display-S3 GPIO 13
+  [IN2]          -> T-Display-S3 GPIO 12
+  [OUT1]         -> JGA12-N20 Motor Terminal (+) [Red Wire]
+  [OUT2]         -> JGA12-N20 Motor Terminal (-) [White Wire]
+
+4. MULTI-CORE WORKPARTITIONING (V3.0):
+--------------------------------------
+Distributed via FreeRTOS on the ESP32-S3 dual-core processor:
+- CORE 0 (Background task, 100Hz high-priority loop):
+  * Sampling: High-precision characterized MAX471 analog inputs.
+  * Safety: 10ms overcurrent trip (max 2.5A) and low battery cutoff.
+  * Motion: Soft-start speed ramping and alternating FUE oscillation.
+  * Counting: Current-Speed Sensor Fusion follicle counting.
+- CORE 1 (Standard main loop & server context):
+  * UI: 1.9" LCD parallel rendering, welcomes, and carousel screens.
+  * Inputs: Dual-button press debouncing on GPIO 0 and 14.
+  * Network: AP (HPP_CONTROL_V1) and Station Web Server.
+
+5. PORTABLE CHARACTERIZED ANALOG SYSTEM (analogReadMilliVolts):
+--------------------------------------------------------------
+The V3.0 code leverages the robust `analogReadMilliVolts()` API native to the ESP32/ESP32-S3 Arduino cores.
+This maps raw ADC counts directly to factory-calibrated millivolts using the burned eFuse tables, bypassing non-linearity and chip-to-chip reference variations.
+- VT Analog (Volt): Reads GPIO 1 in millivolts, divided by 1000 and scaled by 5.0.
+- AT Analog (Amp): Reads GPIO 2 in millivolts, mapped directly to Amperes (1000mV = 1.0A).
+- Internal Battery VBAT: Reads GPIO 4 (ADC1 Channel 3) in millivolts, scaled by 2.0.
+
+6. CORE SYSTEM FEATURES:
+-------------------------
+- On-Device Local Menu: Enter by dual-holding BOOT & KEY buttons. Scroll via BOOT, select via KEY.
+- Web Diagnostics Scope: HTML5 Canvas-based rolling plot rendering real-time scrolling Voltage, Current, and RPM on the readings panel without internet.
+- EHR Report: Modern EHR print-ready post-op sheet with dynamic hourly rates, signature fields, and handwriting lines.
+================================================================================

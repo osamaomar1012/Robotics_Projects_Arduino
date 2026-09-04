@@ -1,0 +1,386 @@
+================================================================================
+               EL-BASEET HAIR PEN-V2 - WEB INTERFACE GUIDE
+================================================================================
+    Created by: Eng. Osama Omar
+    Version: 3.0 - LILYGO T-DISPLAY-S3 HARDWARE INTEGRATION
+================================================================================
+
+This document is the official operator's guide for the EL-BASEET Hair Pen-V2 
+Web Dashboard and Onboard Menu Interface. It details how to navigate the web pages, 
+configure safety limits, select patient profiles, and operate the on-device local menu.
+
+TABLE OF CONTENTS:
+1.  Section 1: Main Dashboard
+2.  Section 2: Operation Page
+3.  Section 3: Patient Management
+4.  Section 4: Add Patient
+5.  Section 5: Configuration & Settings
+6.  Section 6: Diagnostics (Detailed Readings)
+7.  Section 7: Report Archive
+8.  Section 8: WiFi Setup
+9.  Section 9: Template Editor
+10. Section 10: Onboard Display & Physical Buttons
+
+================================================================================
+
+1. SECTION 1: MAIN DASHBOARD
+----------------------------
+This is the default page loaded when you connect to `http://192.168.4.1/`.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 EL-BASEET HAIR PEN-V2            |
+  +--------------------------------------------------+
+  | [!!! SYSTEM HALTED: OVERLOAD !!!] (Alarm Only)   |
+  +--------------------------------------------------+
+  |  CURRENT PATIENT: [ Osama Omar ]                 |
+  +--------------------------------------------------+
+  |  OPERATION CONTROL                               |
+  |  [ START OPERATION ]                             |
+  +--------------------------------------------------+
+  |  [ Patient Management ]                          |
+  |  [ Settings           ]                          |
+  |  [ Report Archive     ]                          |
+  |  [ Diagnostics        ]                          |
+  +--------------------------------------------------+
+  |  WIFI CONNECTION SETTINGS                        |
+  |  Help & Guidelines                               |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Header Gear Logo: A blue, glowing gear animation. It spins at a speed 
+    proportional to the active motor speed. When the motor is off, it stops.
+*   System Alarm Box: Displays a blinking red warning if a safety limit (such
+    as overcurrent or low battery) is tripped. Bypassed in Engineering Mode.
+*   Current Patient Card: Displays the active patient's name. If no patient is 
+    selected, the card is hidden and the [START OPERATION] button is disabled.
+*   [START OPERATION]: Clinicians click this to launch a new surgical session 
+    and transition to the dedicated operative page.
+*   Patient Management: Links to the patient profile database.
+*   Settings: Links to the system configurations and thresholds page.
+*   Report Archive: Links to saved surgical report archives.
+*   Diagnostics: Links to real-time electrical sensor measurements.
+*   WiFi Settings: Opens wireless client settings.
+
+================================================================================
+
+2. SECTION 2: OPERATION PAGE
+----------------------------
+This page appears automatically after you click "Start Operation".
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                  IN OPERATION                    |
+  +--------------------------------------------------+
+  |  [ PAUSE ]                    [ STOP OPERATION ] |
+  +--------------------------------------------------+
+  |  GRAFT COUNTER:              [ 1450 ]            |
+  |                  [ RESET COUNTER ]               |
+  +--------------------------------------------------+
+  |  SETPOINT: [ 200 ]          ACTUAL RPM: [ 1980 ] |
+  |  <----[==================O========]----> (Slider)|
+  |  [ ON ] [ OFF ] [ REVERSE ]                      |
+  +--------------------------------------------------+
+  |  OPERATING MODE                                  |
+  |  [ NORMAL ]  [ OSCILLATE ]                       |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   [PAUSE] / [RESUME]: Pauses the timer and motor. Increases pause count.
+*   [STOP OPERATION]: Concludes surgery, saves the report, and redirects back to dashboard.
+*   Graft Counter: Large green counter showing follicle count.
+*   Speed Slider: Drag to adjust PWM setpoint on-the-fly (0-255).
+*   Actual RPM: Shows real physically measured speed from the encoder (Version 1).
+*   Operating Mode: NORMAL (continuous) or OSCILLATE (alternating CW/CCW).
+
+================================================================================
+
+3. SECTION 3: PATIENT MANAGEMENT
+--------------------------------
+Manage active patient sessions and archives.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                PATIENT MANAGEMENT                |
+  +--------------------------------------------------+
+  |  [ Add New Patient ]                             |
+  +--------------------------------------------------+
+  |  Select Existing Patient                         |
+  |  Choose: [ Patient Selection Dropdown ]          |
+  |  [ Select This Patient ]                         |
+  +--------------------------------------------------+
+  |  Remove Patient (DANGER)                         |
+  |  Choose: [ Patient Selection Dropdown ]          |
+  |  [ Permanently Remove Patient ]                  |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Add New Patient: Directs to demographic input form.
+*   Select Existing Patient: Activates a saved profile.
+*   Remove Patient: Permanently deletes the profile and all associated reports.
+
+================================================================================
+
+4. SECTION 4: ADD PATIENT
+-------------------------
+Input clinical demographics before starting surgery.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 ADD NEW PATIENT                  |
+  +--------------------------------------------------+
+  |  Patient Name: [ Enter Patient's Full Name ]     |
+  |  Age: [ e.g. 35 ]      Nationality: [ Egyptian ] |
+  |  Mobile: [ e.g. +201xxxxxxxxx ]                  |
+  |  Doctor Name: [ Enter Doctor's Name ]            |
+  |  [ SAVE & SELECT PATIENT ]                       |
+  +--------------------------------------------------+
+
+================================================================================
+
+5. SECTION 5: CONFIGURATION & SETTINGS
+--------------------------------------
+Fine-tune device operational, hardware, and safety limits.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                  CONFIGURATION                   |
+  +--------------------------------------------------+
+  | Screen Rotation (s): [ 5 ] [SET]                 |
+  +--------------------------------------------------+
+  | Oscillation Time (ms): [ 1000 ] [SAVE]           |
+  +--------------------------------------------------+
+  | Manual Oscillation (ms)                          |
+  | CW: [ 500 ] CCW: [ 500 ] [SAVE OSCILLATION]       |
+  +--------------------------------------------------+
+  | Safety Thresholds                                |
+  | Max I (A): [ 2.5 ] Min V (V): [ 3.2 ] [SAVE]      |
+  +--------------------------------------------------+
+  | Motor Hardware Version                           |
+  | Version: [ Version 1: Motor + Encoder ]          |
+  +--------------------------------------------------+
+  | Graft Sensitivity                                |
+  | Spike (A): [ 0.04 ] Hyst (A): [ 0.02 ]           |
+  | Speed Dip (%): [ 10.0 ]   [SAVE SENSITIVITY]     |
+  +--------------------------------------------------+
+  | Engineering Mode: [ TOGGLE DEBUG ]               |
+  +--------------------------------------------------+
+  | DANGER ZONE: [ RESET TO FACTORY ]                |
+  +--------------------------------------------------+
+  | Customization: [ EDIT REPORT TEMPLATE ]          |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Screen Rotation: Seconds the onboard TFT cycles between screens.
+*   Safety Thresholds: Max motor current limit (Max I) and low-battery limit (Min V).
+*   Motor Hardware Version:
+    - Version 1: Motor + Encoder (utilizes JGA12-N20 physical encoder ticks,
+      sensor-fusion graft counting, and measures actual physical RPM).
+    - Version 2: Motor without Encoder (uses pure current-spike graft counting
+      and estimated voltage-based RPM).
+*   Graft Sensitivity: Spike offset, hysteresis, and Speed Dip (%) checks.
+*   Engineering Mode: [TOGGLE DEBUG] disables safety trips for testing.
+
+================================================================================
+
+6. SECTION 6: DIAGNOSTICS (DETAILED READINGS)
+---------------------------------------------
+Real-time diagnostic measurements.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                     READINGS                     |
+  +--------------------------------------------------+
+  |  Voltage Comparison                              |
+  |  MAX471 Sensor: [ 4.12V ]   TTGO Internal: [ 4.15V]|
+  |  Power State:   [ DISCHARGING (Battery) ]        |
+  +--------------------------------------------------+
+  |  Live Telemetry Plot                             |
+  |  (HTML5 Canvas Scrolling Waveform Scope)         |
+  |  * Volts (cyan)   * Amps (yellow)  * RPM (green) |
+  +--------------------------------------------------+
+  |  CURRENT: [ 0.25A ]       POWER: [ 1.03W ]       |
+  +--------------------------------------------------+
+  |  BATTERY: [ 95% ]         ACTUAL RPM: [ 1980 ]   |
+  +--------------------------------------------------+
+  |  BASELINE I: [ 0.21A ]    [ RE-CALIBRATE ]       |
+  +--------------------------------------------------+
+
+ELEMENT DESCRIPTIONS:
+
+*   Voltage Comparison: Displays both the external battery terminal voltage (MAX471)
+    and the internal charging bus voltage. Automatically detects USB connection.
+*   Live Telemetry Plot: Dynamic HTML5 Canvas wave displaying sensor history at 2Hz.
+*   Re-calibrate: Starts a 2-second air-load calibration of baseline current/RPM.
+
+================================================================================
+
+7. SECTION 7: REPORT ARCHIVE
+----------------------------
+Lists saved reports from local flash memory.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                  REPORT ARCHIVE                  |
+  +--------------------------------------------------+
+  | - [ Patient_A_167...json ] --------------- [ X ] |
+  | - [ Patient_B_167...json ] --------------- [ X ] |
+  | - [ Patient_C_167...json ] --------------- [ X ] |
+  |                                                  |
+  +--------------------------------------------------+
+
+CLINICAL REPORT ASCII VISUALIZATION:
+
+  +------------------------------------------------------------+
+  |                 SURGICAL OPERATIVE REPORT                  |
+  |           EL-BASEET HAIR PEN-V2 - MEDICAL SYSTEM           |
+  +------------------------------------------------------------+
+  | PATIENT DEMOGRAPHICS:                                      |
+  | Patient Name: Osama Omar         Age/Gender: 32 / Male     |
+  | Mobile No: +2010xxxxxxxx         Nationality: Egyptian     |
+  | Date of Procedure: 2026-09-04    Lead Surgeon: Dr. Ahmad   |
+  +------------------------------------------------------------+
+  | PROCEDURE OPERATIVE METRICS:                               |
+  | +--------------------------------------------------------+ |
+  | |  TOTAL GRAFTS: 1450                                    | |
+  | |  OPERATIVE DURATION: 1h 45m 12s                        | |
+  | |  TOTAL PAUSES: 3                                       | |
+  | +--------------------------------------------------------+ |
+  | Average Operational Flow Rate:  828 grafts / hour        | |
+  +------------------------------------------------------------+
+  | CLINICAL NOTES & SURGEON REMARKS:                          |
+  | Custom observations / post-op instructions:                |
+  | .......................................................... |
+  | .......................................................... |
+  +------------------------------------------------------------+
+  | [ Surgeon Signature ]          [ Clinical Stamp / Date ]   |
+  | ____________________           _________________________   |
+  +------------------------------------------------------------+
+
+================================================================================
+
+8. SECTION 8: WIFI SETUP
+------------------------
+Configure client network settings.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                    WIFI SETUP                    |
+  +--------------------------------------------------+
+  |  [ SCAN NETWORKS ]             [ HIDDEN SSID ]   |
+  |  Choose: [ Wifi Networks Scan Dropdown ]         |
+  |  SSID: [ ssid_name ]                             |
+  |  Password: [ ssid_password ] [x] Show Password    |
+  |  [ SAVE & RESTART ]                              |
+  +--------------------------------------------------+
+
+================================================================================
+
+9. SECTION 9: TEMPLATE EDITOR
+-----------------------------
+Modify the HTML template and custom logos.
+
+ASCII DIAGRAM:
+
+  +--------------------------------------------------+
+  |                 TEMPLATE EDITOR                  |
+  +--------------------------------------------------+
+  |  Report Logo:                                    |
+  |  [ Choose File ] [ UPLOAD LOGO ]                 |
+  +--------------------------------------------------+
+  |  Report HTML Template:                           |
+  |  +--------------------------------------------+  |
+  |  | <!DOCTYPE html> <html> <head> ...          |  |
+  |  +--------------------------------------------+  |
+  |  [ SAVE TEMPLATE ]                               |
+  +--------------------------------------------------+
+
+================================================================================
+
+10. SECTION 10: ONBOARD DISPLAY & PHYSICAL BUTTONS (V3.0 - LILYGO T-DISPLAY-S3)
+-------------------------------------------------------------------------------
+The upgraded V3.0 device is equipped with a 1.9" high-definition parallel color LCD 
+screen and two physical buttons near the USB-C port of the **LILYGO T-Display-S3**:
+- BOOT BUTTON (Left/Top Button, GPIO 0)
+- KEY BUTTON (Right/Bottom Button, GPIO 14)
+
+**Important:** The button functions are context-aware, changing based on your active mode.
+
+--- [ DUAL BUTTON PRESS ] ---
+
+*   **Long Press (Both Buttons):** Toggles into **Local Menu Mode**.
+    A confirmation "Menu Opened" or "Menu Closed" message will appear on the screen.
+
+--- [ LOCAL MENU MODE CONTROLS ] ---
+When Local Menu Mode is active, normal motor control buttons are suspended:
+
+MENU MODE ASCII VISUALIZATION:
+
+  +----------------------------------+
+  | SYSTEM MENU             [|||||]  |
+  |----------------------------------|
+  | > 1. Speed: 200                  |
+  |   2. Mode: NORMAL                |
+  |   3. Hardw: V1-Enc               |
+  |   4. Reset Grafts                |
+  |   5. Exit Menu                   |
+  +----------------------------------+
+
+*   **BOOT BUTTON (Scroll Option)**
+    -   **Short Press:** Scroll down through the menu items (Speed -> Mode -> Hardware -> Reset -> Exit).
+    -   **Long Press:** Save and Exit Menu Mode.
+
+*   **KEY BUTTON (Select/Adjust Value)**
+    -   **Short Press:** Triggers or modifies the highlighted option:
+        *   Speed: Increments motor speed by 10 (wraps 50 -> 250 -> 50).
+        *   Mode: Toggles between standard forward rotation (NORMAL) and CCW/CW OSCILLATE.
+        *   Hardw: Toggles between Version 1 (Motor + Encoder) and Version 2 (Motor without Encoder).
+        *   Reset Grafts: Resets the follicle count to 0 in persistent memory.
+        *   Exit Menu: Exits Menu Mode.
+
+--- [ NORMAL MODE CONTROLS ] ---
+
+*   **BOOT BUTTON (Left/Top Button)**
+    -   **Short Press:** Decrease motor speed by 10.
+    -   **Long Press:** Pause the current operation.
+
+*   **KEY BUTTON (Right/Bottom Button)**
+    -   **Short Press:** Increase motor speed by 10.
+    -   **Long Press:**
+        - If the operation is IDLE, this will **Start** a new operation.
+        - If the operation is PAUSED, this will **Resume** the operation.
+
+--- [ OSCILLATION MODE CONTROLS ] ---
+
+*   **BOOT BUTTON (Left/Top Button)**
+    -   **Short Press:** Increase Counter-Clockwise (CCW) rotation time by 500ms.
+    -   **Long Press:** Decrease Counter-Clockwise (CCW) rotation time by 500ms.
+
+*   **KEY BUTTON (Right/Bottom Button)**
+    -   **Short Press:** Increase Clockwise (CW) rotation time by 500ms.
+    -   **Long Press:** Decrease Clockwise (CW) rotation time by 500ms.
+
+--------------------------------------------------------------------------------
+
+SPECIAL DISPLAY STATES:
+
+*   ALARM SCREEN: If a safety system is triggered (Overcurrent or Low Battery),
+    the screen will be overridden with a large red warning like "OVERCURRENT" 
+    or "LOW BATTERY".
+*   GRAFT FLASH SCREEN: When a graft is counted, the screen flashes white with the
+    new count in a large font for 200ms before returning.
+*   DEBUG MODE: If Engineering/Debug mode is enabled, a flashing yellow "DEBUG"
+    tag will appear in the top-right corner.
+================================================================================
