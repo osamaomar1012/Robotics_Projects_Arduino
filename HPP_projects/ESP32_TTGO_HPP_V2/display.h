@@ -15,6 +15,13 @@
 #include <SPI.h>
 #include <WiFi.h>
 
+// Extern global references for local menu system
+extern bool inMenuMode;
+extern uint8_t currentMenuItem;
+extern uint8_t webBaseSpeed;
+extern bool oscillatingMode;
+extern uint8_t motorVersion;
+
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft); // Create the Sprite object
 
@@ -159,6 +166,45 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         spr.drawString(s_flashMessage, spr.width() / 2, spr.height() / 2, 4);
         spr.pushSprite(0, 0);
         return; // Skip normal screen drawing
+    }
+
+    // --- LOCAL MENU MODE OVERRIDE ---
+    if (inMenuMode) {
+        spr.fillSprite(TFT_BLACK);
+        
+        // Draw Header
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        spr.drawString("SYSTEM MENU", 5, 5, 2);
+        spr.drawFastHLine(0, 22, spr.width(), TFT_DARKGREY);
+
+        const char* labels[] = {
+            "1. Speed: ",
+            "2. Mode: ",
+            "3. Hardw: ",
+            "4. Reset Grafts",
+            "5. Exit Menu"
+        };
+
+        for (uint8_t i = 0; i < 5; i++) {
+            int yPos = 30 + (i * 18);
+            
+            // Draw background highlight bar for the highlighted item
+            if (i == currentMenuItem) {
+                spr.fillRoundRect(2, yPos - 1, spr.width() - 4, 16, 3, TFT_BLUE);
+                spr.setTextColor(TFT_WHITE, TFT_BLUE);
+            } else {
+                spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            }
+
+            String text = labels[i];
+            if (i == 0) text += String(webBaseSpeed);
+            else if (i == 1) text += (oscillatingMode ? "OSC" : "NORMAL");
+            else if (i == 2) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
+
+            spr.drawString(text, 10, yPos, 2);
+        }
+        spr.pushSprite(0, 0);
+        return; // Skip drawing normal telemetry screens
     }
 
     // --- SHARED HEADER ZONE ---

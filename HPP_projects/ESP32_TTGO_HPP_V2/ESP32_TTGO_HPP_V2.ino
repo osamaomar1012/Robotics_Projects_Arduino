@@ -59,6 +59,8 @@ void setMotorVersion(uint8_t version) {
 }
 
 // Global Variables
+esp_adc_cal_characteristics_t adc_chars; // ESP32 characterized ADC calibration structure
+TaskHandle_t TelemetryTaskHandle;        // FreeRTOS background task handle
 float maxCurrentThreshold = 2.5; // Safety limit in Amperes (adjust to motor specs)
 float minVoltageThreshold = 3.2; // 18650 safe discharge limit (Volts)
 int16_t motorSpeed = 0;   // Signed actual speed
@@ -97,6 +99,8 @@ bool debugMode = false;     // Engineering mode to bypass safety stops
 bool oscillatingMode = false; // Master flag for oscillation mode
 uint32_t oscillationDuration = 2000; // Default total duration for web UI compatibility
 bool wifiConnecting = false; // Flag to indicate if STA connection is in progress
+bool inMenuMode = false;      // True if navigating the on-device menu
+uint8_t currentMenuItem = 0;  // Current selected menu option (0-4)
 Preferences preferences;
 
 // --- Oscillation Control Variables ---
@@ -203,11 +207,49 @@ void showAnimatedLogo() {
     }
 }
 
+/**
+ * @brief High-priority background task pinned to Core 0 for real-time telemetry, 
+ *        motor overcurrent safety protection, speed control, and sensor fusion graft counting.
+ */
+void telemetryTaskCode(void * pvParameters) {
+    Serial.printf("Real-time telemetry and safety task running on Core: %d\n", xPortGetCoreID());
+    
+    // We execute the telemetry/safety loop at 100Hz (every 10ms)
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(10); 
+    
+    while (true) {
+        // Block until exactly 10ms have elapsed
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // 1. Read calibrated electrical telemetry (Current and Voltage)
+        readMAX471(batteryVoltage, batteryCurrent);
+        
+        // 2. Perform fast safety checks (Overcurrent and Low Voltage trips)
+        handleSafetyChecks();
+        
+        // 3. Perform speed control calculations and ramp outputs
+        handleMotorControl();
+        
+        // 4. Sample baseline variables for self-calibration
+        handleCalibration();
+        
+        // 5. Evaluate motor RPM and battery state of charge
+        calculateTelemetry();
+        
+        // 6. Run the Sensor-Fusion graft counter algorithm
+        handleGraftCounter();
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     
     // Initialize NVM Storage
     preferences.begin("hpp_v1", false);
+    
+    // Initialize Characterized ADC Calibration
+    setupADCCalibration();
     
     // Load saved values, or use defaults if not found
     webBaseSpeed = preferences.getUChar("motSpd", 200);
@@ -230,8 +272,8 @@ void setup() {
     pinMode(14, OUTPUT);
     digitalWrite(14, LOW); // Disable to save power initially
 
-    // Load and initialize Motor Version (0 = Standard, 1 = Premium)
-    motorVersion = preferences.getUChar("motVer", 1); // Default to 1 (Premium)
+    // Load and initialize Motor Version (1 = Version 1: Motor + Encoder, 2 = Version 2: Motor without Encoder)
+    motorVersion = preferences.getUChar("motVer", 1); // Default to 1
     setMotorVersion(motorVersion);
 
     // Initialize SPIFFS and play animation
@@ -243,7 +285,7 @@ void setup() {
         showWelcomeLogo(); // Fallback to static logo
     }
 
-    // calibrationNeeded will be triggered when motor is first turned ON or speed changes
+    // Initialize the motor driver pins
     setupDRV8833();
 
     // Setup button pins with internal pull-ups
@@ -270,9 +312,7 @@ void setup() {
     delay(500); // Breathe before WiFi
     setupWeb(); 
 
-    
-    // Initial sensor read to populate values before first display refresh
-    // This also seeds the EMA filter
+    // Initial sensor read to seed the EMA filter
     readMAX471(batteryVoltage, batteryCurrent);
 
     // Load report data from NVM
@@ -282,22 +322,33 @@ void setup() {
     patientMobile = preferences.getString("pMob", "N/A");
     doctorName = preferences.getString("pDoc", "N/A");
 
+    // Spin up real-time telemetry task pinned to Core 0 (Priority 3 - Higher than normal)
+    xTaskCreatePinnedToCore(
+        telemetryTaskCode,       /* Task function. */
+        "TelemetryTask",         /* name of task. */
+        8192,                    /* Stack size of task (8KB is generous and safe) */
+        NULL,                    /* parameter of the task */
+        3,                       /* priority of the task */
+        &TelemetryTaskHandle,    /* Task handle to keep track of created task */
+        0                        /* pin task to Core 0 */
+    );
+    Serial.println(F("Real-time telemetry and safety task launched on Core 0."));
+
     // Synchronize timers to prevent immediate execution of loop logic
     lastUpdate = millis();
     lastScreenSwitch = millis();
 }
 
 void loop() {
-    server.handleClient(); // Process web requests
+    server.handleClient(); // Process web requests on Core 1
 
-    // Non-blocking timed loop. Executes approximately every 100ms.
-    // This pattern is more robust against timing drift than the previous check.
-    const unsigned long LOOP_INTERVAL = 50; // Increased responsiveness to 50ms
+    // Non-blocking timed loop. Executes approximately every 100ms on Core 1.
+    // Pinning UI/Buttons here allows the web server to handle loads smoothly.
+    const unsigned long LOOP_INTERVAL = 100;
     if (millis() - lastUpdate >= LOOP_INTERVAL) {
         lastUpdate += LOOP_INTERVAL; // Move the timer forward by a fixed interval
 
         // --- Robust WiFi Status Handling ---
-        // Periodically check the WiFi status to handle disconnections and reconnections.
         static unsigned long lastWifiCheck = 0;
         if (millis() - lastWifiCheck > 5000) { // Check every 5 seconds
             lastWifiCheck = millis();
@@ -336,16 +387,8 @@ void loop() {
             }
         }
 
-        // Read sensors first
-        readMAX471(batteryVoltage, batteryCurrent);
-
-        handleSafetyChecks();
-        handleButtons(); // Check for button presses
-        handleMotorControl();
-        handleCalibration();
-        calculateTelemetry();
-        handleGraftCounter();
-        updateUI();
+        handleButtons(); // Check for button presses on Core 1
+        updateUI();      // Refresh local TFT Display on Core 1
 
         // Debug Heartbeat: Verifies the code hasn't frozen
         static unsigned long lastHeartbeat = 0;
@@ -360,25 +403,81 @@ void handleButtons() {
     bool btnLeftState = (digitalRead(BTN_LEFT) == LOW);
     bool btnRightState = (digitalRead(BTN_RIGHT) == LOW);
 
-    // --- 1. Check for Dual Long Press (Mode Switch) ---
+    // --- 1. Check for Dual Long Press (Menu Mode Toggle) ---
     if (btnLeftState && btnRightState) {
         if (bothButtonsPressTime == 0) {
             bothButtonsPressTime = millis();
         } else if (!bothButtonsLongPressHandled && (millis() - bothButtonsPressTime > LONG_PRESS_DURATION)) {
-            oscillatingMode = !oscillatingMode;
-            preferences.putBool("oscMode", oscillatingMode);
-            displayWebConfirmation(oscillatingMode ? "Mode: OSC" : "Mode: NORMAL");
-            Serial.println("DUAL LONG PRESS: Mode switched to " + String(oscillatingMode ? "OSCILLATION" : "NORMAL"));
+            inMenuMode = !inMenuMode;
+            displayWebConfirmation(inMenuMode ? "Menu Opened" : "Menu Closed");
+            Serial.println("DUAL LONG PRESS: Menu Mode toggled to " + String(inMenuMode ? "OPEN" : "CLOSED"));
             bothButtonsLongPressHandled = true; // Prevent re-triggering
         }
         return; // Prioritize dual press, skip single button logic
     } else {
-        // Reset dual press state if buttons are released
         bothButtonsPressTime = 0;
         bothButtonsLongPressHandled = false;
     }
 
-    // --- 2. Handle Single Button Presses (Context-Aware) ---
+    // --- 2. Handle Menu Mode Navigation & Control ---
+    if (inMenuMode) {
+        // Left Button (Scroll Down)
+        if (btnLeftState) {
+            if (btnLeftPressTime == 0) {
+                btnLeftPressTime = millis();
+            } else if (!btnLeftLongPressHandled && (millis() - btnLeftPressTime > LONG_PRESS_DURATION)) {
+                // Left button long-press exits the menu
+                inMenuMode = false;
+                displayWebConfirmation("Menu Closed");
+                btnLeftLongPressHandled = true;
+            }
+        } else if (btnLeftPressTime > 0) {
+            if (!btnLeftLongPressHandled && (millis() - btnLeftPressTime > DEBOUNCE_DELAY)) {
+                // Short press moves selection down
+                currentMenuItem = (currentMenuItem + 1) % 5;
+            }
+            btnLeftPressTime = 0; btnLeftLongPressHandled = false;
+        }
+
+        // Right Button (Modify/Select Item)
+        if (btnRightState) {
+            if (btnRightPressTime == 0) btnRightPressTime = millis();
+        } else if (btnRightPressTime > 0) {
+            if (millis() - btnRightPressTime > DEBOUNCE_DELAY) {
+                // Short press triggers selected menu action
+                if (currentMenuItem == 0) {
+                    // Adjust speed (Speed wraps 50 -> 250 -> 50)
+                    webBaseSpeed += 10;
+                    if (webBaseSpeed > 250) webBaseSpeed = 50;
+                    preferences.putUChar("motSpd", webBaseSpeed);
+                    calibrationNeeded = true;
+                    displayWebConfirmation("Speed: " + String(webBaseSpeed));
+                } else if (currentMenuItem == 1) {
+                    // Toggle oscillation mode
+                    oscillatingMode = !oscillatingMode;
+                    preferences.putBool("oscMode", oscillatingMode);
+                    displayWebConfirmation(oscillatingMode ? "Mode: OSC" : "Mode: NORMAL");
+                } else if (currentMenuItem == 2) {
+                    // Toggle Motor Version (1 vs 2)
+                    uint8_t newVer = (motorVersion == 1) ? 2 : 1;
+                    setMotorVersion(newVer);
+                } else if (currentMenuItem == 3) {
+                    // Reset counter
+                    penetrationCount = 0;
+                    preferences.putUInt("pCnt", 0);
+                    displayWebConfirmation("Reset Count");
+                } else if (currentMenuItem == 4) {
+                    // Exit Menu
+                    inMenuMode = false;
+                    displayWebConfirmation("Menu Closed");
+                }
+            }
+            btnRightPressTime = 0;
+        }
+        return; // Skip normal button operations while in Menu Mode
+    }
+
+    // --- 3. Handle Normal Single Button Presses (Context-Aware) ---
     if (oscillatingMode) {
         // --- OSCILLATION MODE: Adjust Timings ---
         const uint16_t timeStep = 500;
@@ -586,25 +685,22 @@ void handleCalibration() {
 }
 
 /**
- * @brief Reads the TTGO board's internal battery voltage (via GPIO 34 and GPIO 14).
+ * @brief Reads the TTGO board's internal battery voltage (via GPIO 34 and GPIO 14) using esp_adc_cal characterized readings.
  * @return The measured internal voltage in Volts.
  */
 float readInternalBatteryVoltage() {
     // 1. Enable the onboard voltage divider (connected to GPIO 14)
     digitalWrite(14, HIGH);
-    delay(1); // Allow voltage to stabilize
+    delayMicroseconds(500); // 500us is plenty for the RC network to settle (100k/100k divider)
     
-    // 2. Read the raw ADC value from GPIO 34
-    uint16_t raw = analogRead(34);
+    // 2. Read the raw ADC value from GPIO 34 (ADC1 Channel 6) characterized to mV
+    uint32_t mv = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_6), &adc_chars);
     
     // 3. Disable the voltage divider to prevent battery drain
     digitalWrite(14, LOW);
     
-    // 4. Convert ADC to voltage (12-bit ADC, 0-4095 range, 3.3V Vref)
-    // The onboard divider is 100k/100k (ratio 1:2), so multiply by 2.0.
-    // ESP32 ADC is non-linear and Vref is typically around 1100mV instead of exactly 1100mV,
-    // so we apply a standard calibration factor (1.10) to align with a digital multimeter.
-    float volt = (raw / 4095.0) * 3.3 * 2.0 * 1.10f;
+    // 4. Convert millivolts to Volts and multiply by 2.0 (voltage divider ratio 1:2)
+    float volt = (mv / 1000.0f) * 2.0f;
     return volt;
 }
 

@@ -1,38 +1,59 @@
 ================================================================================
-SYSTEM CONNECTION DIAGRAM: ESP32 MOTOR CONTROL
+FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
 ================================================================================
 
-    +-----------------------+           +-----------------------+
-    |     18650 BATTERY     |           |        DC MOTOR       |
-    |  [+]             [-]  |           |      (M1)   (M2)      |
-    +---|---------------|---+           +-------|-------|-------+
-        |               |                       |       |
-        |               |               +-------|-------|-------+
-        |               |               |       |       |       |
-    +---V--------------+`-----------+   |   +---V-------V-------+
-    |      MAX471      |            |   |   |      DRV8833      |
-    | (V/I SENSOR)     |            |   |   |   (MOTOR DRIVER)  |
-    +------------------+            |   |   +-------------------+
-    | [RS+] Source (+) <------------+   |   | [VCC] Power In  <--[From MAX471 RS-]
-    | [RS-] Load (+)   -----------------+   | [GND] Ground      | 
-    | [VT]  Voltage Out ---[GPIO 36]        | [IN1] PWM Speed <--[GPIO 13]
-    | [AT]  Current Out ---[GPIO 32]        | [IN2] Direction <--[GPIO 12]
-    | [GND] Common GND  ---|                | [SLP] Sleep Pin <--[3.3V]
-    +-------------------+  |                | [OUT2] Terminal B->[Motor M2]
-                           |                +-------------------+
-                           |
-    +----------------------V------------------------------------+
-    |                    ESP32 (TTGO BOARD)                     |
-    |                                                           |
-    |  [GND] <-------------+------------- (Battery Negative -)  | 
-    |  [36]  <------------- (MAX471 VT)                         |
-    |  [32]  <------------- (MAX471 AT)                         |
-    |  [13]  -------------> (DRV8833 IN1)                       |
-    |  [12]  -------------> (DRV8833 IN2)                       |
-    |  [3V3] -------------> (DRV8833 SLP)                       |
-    |                                                           |    
-    |  [TFT Display is internally connected via SPI on this board] |
-    +-----------------------------------------------------------+
+                      +----------------------------------+
+                      |       18650 Li-ion BATTERY       |
+                      |   [Positive +]    [Negative -]   |
+                      +--------|---------------+---------+
+                               |               |
+             +-----------------+               +------------------------+
+             | (Raw Battery Power)                                      |
+             v                                                          v
+  +----------------------+                                   +----------------------+
+  |    MAX471 SENSOR     |                                   |  ESP32 (TTGO BOARD)  |
+  |                      |                                   |                      |
+  | [RS+] Source In  <---+                                   | [GND]   Common GND  |<--+
+  | [RS-] Load Out   ------------[ VCC Power In ]--------+   | [3V3]   3.3V Power  |--+|
+  |                      |                               |   | [GPIO 36] VT In     |<-+|
+  | [VT]  Voltage Out  ----------> [ ESP32 GPIO 36 ]     |   | [GPIO 32] AT In     |<-+|
+  | [AT]  Current Out  ----------> [ ESP32 GPIO 32 ]     |   | [GPIO 13] PWM IN1   |--+|
+  | [GND] Common GND   ---+                              |   | [GPIO 12] PWM IN2   |--+|
+  +----------------------+ |                             |   | [GPIO 25] Enc. A    |<-+|
+                           v                             |   | [GPIO 26] Enc. B    |<-+|
+                 (Common System Ground)                  |   | [GPIO 14] ADC EN    |--+|
+                           ^                             |   | [GPIO 34] VBAT In   |<-+|
+                           |                             |   +---------|-----------+  ||
+                           |                             |             v              ||
+  +------------------------+                             |     [Gated Internal        ||
+  |                                                      |      ADC Divider]          ||
+  |       +----------------------------------------------+                            ||
+  |       v                                                                           ||
+  +-------+--------------+                                                            ||
+  |       DRV8833        |                                                            ||
+  |    (MOTOR DRIVER)    |                                                            ||
+  |                      |                                                            ||
+  | [VCC]  Power Input   |                                                            ||
+  | [GND]  Common Ground |                                                            ||
+  | [SLP]  Sleep Pin     |<----------[ ESP32 3V3 ]                                    ||
+  | [IN1]  PWM Speed In  |<----------[ ESP32 GPIO 13 ]                                ||
+  | [IN2]  Direction In  |<----------[ ESP32 GPIO 12 ]                                ||
+  |                      |                                                            ||
+  | [OUT1] Motor Out 1   |---------[RED Wire]----------+                              ||
+  | [OUT2] Motor Out 2   |---------[WHITE Wire]------+ |                              ||
+  +----------------------+                           | |                              ||
+                                                     | |                              ||
+                                                     v v                              ||
+                                           JGA12-N20 ENCODER MOTOR                    ||
+                                           +----------------------+                   ||
+                                           | [M+]  Motor Power +  |                   ||
+                                           | [M-]  Motor Power -  |                   ||
+                                           |                      |                   ||
+                                           | [VCC] Encoder VCC    |<--[BLACK Wire]----+|
+                                           | [GND] Encoder GND    |<--[BLUE Wire]------+
+                                           | [A]   Encoder Chan A |<--[YELLOW Wire]----+ (GPIO 25)
+                                           | [B]   Encoder Chan B |<--[GREEN Wire]-----+ (GPIO 26)
+                                           +----------------------+
 
 --------------------------------------------------------------------------------
 WIRING TABLE REFERENCE:
@@ -60,6 +81,29 @@ JGA12-N20 ENCODER MOTOR (WIRE MAPPING):
   Blue Wire   (Enc GND)   -> ESP32 GND (Common Ground)
   Yellow Wire (Channel A) -> ESP32 GPIO 25 (High-speed interrupt pin)
   Green Wire  (Channel B) -> ESP32 GPIO 26 (State/Direction pin)
+
+JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
+--------------------------------------------------------------------------------
+
+  +-----------------------+                    +-----------------------+
+  |        DRV8833        |                    |   ESP32 TTGO BOARD    |
+  |     (MOTOR DRIVER)    |                    |     (MCU BOARD)       |
+  |                       |                    |                       |
+  |  [OUT1] Motor Out + ------+                | [GND]   Common Ground | <---+
+  |  [OUT2] Motor Out - ----+ |                | [3V3]   Power Output  | <--+ |
+  |                       | | |                | [GPIO 25] Encoder A   | <---+ |
+  +-----------------------+ | |                | [GPIO 26] Encoder B   | <--+ | |
+                            | |                +-----------------------+    | | |
+                            | |                                             | | |
+                            | |    JGA12-N20 ENCODER MOTOR                  | | |
+                            | |    +----------------------+                 | | |
+                            | +--->| [M+] Motor Pin +     | [RED Wire]      | | |
+                            +----->| [M-] Motor Pin -     | [WHITE Wire]    | | |
+                                   | [VCC] Encoder VCC    |<--[BLACK Wire]--+ | |
+                                   | [GND] Encoder GND    |<--[BLUE Wire]-----+ |
+                                   | [A] Encoder Chan A   |<--[YELLOW Wire]-----+
+                                   | [B] Encoder Chan B   |<--[GREEN Wire]------+
+                                   +----------------------+
 
 18650 BATTERY:
   Positive (+)            -> MAX471 RS+

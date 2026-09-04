@@ -1,5 +1,5 @@
 ================================================================================
-               EL-BASEET HAIR PEN-V1 - OFFICIAL USER MANUAL
+               EL-BASEET HAIR PEN-V2 - OFFICIAL USER MANUAL
 ================================================================================
      _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _     _  _  _  _
     | || || || |   | || || || |   | || || || |   | || || || |   | || || || |
@@ -12,123 +12,101 @@
 
 1. SYSTEM OVERVIEW
 ------------------
-The EL-BASEET Hair Pen-V1 is a specialized medical-grade surgical assistant 
+The EL-BASEET Hair Pen-V2 is a specialized medical-grade surgical assistant 
 designed specifically for Hair Planting Surgery (FUE/FUI). It provides high-speed 
 motor precision for follicle extraction and placement, featuring real-time 
-telemetry and a proprietary current-spike detection algorithm for accurate 
-graft counting.
+telemetry and an advanced dynamic counting algorithm.
 
-2. HARDWARE COMPONENTS LIST
+2. MULTI-VERSION HARDWARE OPTIONS
+---------------------------------
+The system can be configured to support two hardware variants of the surgical pen:
+*   VERSION 1 (Motor + Encoder): Premium model utilizing a JGA12-N20 micro gearmotor
+    with a quadrature encoder. It measures actual physical RPM and uses an advanced
+    Current-Speed Sensor Fusion algorithm to count grafts.
+*   VERSION 2 (Motor without Encoder): Standard model using a standard DC motor.
+    It estimates RPM mathematically from voltage and uses a pure current-spike
+    algorithm to count grafts.
+
+3. HARDWARE SPECIFICATIONS
 ---------------------------
-*   MCU: TTGO ESP32 (Integrated SSD1306 0.96" OLED)
+*   MCU: LILYGO TTGO T-Display ESP32 (Integrated 1.14" ST7789 TFT screen)
 *   Motor Driver: DRV8833 Dual H-Bridge (Supports up to 1.5A continuous)
 *   Sensor: MAX471 High-Side Current/Voltage Sensor (3.0A Max)
 *   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
-*   Actuator: Precision Surgical Micro-Motor (DC Brushed)
+*   Actuator: JGA12-N20 Micro Metal Gear Motor (V1) or Standard DC Brushed Motor (V2)
 
-3. SYSTEM ARCHITECTURE (ASCII DIAGRAM)
---------------------------------------
+4. WIRING AND WIRE COLORS (JGA12-N20 ENCODER MOTOR)
+---------------------------------------------------
+Ensure you wire the JGA12-N20 motor according to these exact manufacturer specifications:
+*   Red Wire     (Motor +)       ->  DRV8833 OUT1
+*   White Wire   (Motor -)       ->  DRV8833 OUT2
+*   Black Wire   (Encoder VCC)   ->  ESP32 3V3 (Stable 3.3V Power)
+*   Blue Wire    (Encoder GND)   ->  ESP32 GND (Common Ground)
+*   Yellow Wire  (Encoder Chan A)->  ESP32 GPIO 25 (High-speed interrupt input)
+*   Green Wire   (Encoder Chan B)->  ESP32 GPIO 26 (State/direction logic input)
 
-      [ 18650 BATTERY ]
-             |
-      [ MAX471 SENSOR ] <--------+
-       (V/I Monitoring)          |
-             |                   | [V/I Signals]
-             +-------------------|-------+
-             |                   |       |
-      [ DRV8833 DRIVER ]         |   [ ESP32 MCU ] <--- [ Surgical Dashboard ]
-      (H-Bridge Control)         |   (Logic Center)
-             |                   |       |            (Web Interface)
-      [ SURGICAL MOTOR ]         |   [ TFT DISPLAY ]
-                                 |   (Local Feedback)
-                                 +-------+
+MAX471 SENSOR WIRE SPECIFICATIONS:
+*   VT (Voltage analog out)      ->  ESP32 GPIO 36
+*   AT (Current analog out)      ->  ESP32 GPIO 32
 
-4. WIRING SPECIFICATIONS
-------------------------
-*   MAX471 VT (Voltage)  -> ESP32 GPIO 36
-*   MAX471 AT (Current)  -> ESP32 GPIO 32
-*   DRV8833 IN1 (PWM)    -> ESP32 GPIO 13
-*   DRV8833 IN2 (PWM)    -> ESP32 GPIO 12
-*   TFT Display SPI/PWR  -> Internal to TTGO T-Display Board
+TTGO INTERNAL TELEMETRY PINS:
+*   ADC Enable (Divider Power)   ->  ESP32 GPIO 14
+*   Internal VBAT (ADC Input)    ->  ESP32 GPIO 34
 
-5. CORE FEATURES
-----------------
-*   Dual WiFi Mode: Operates as an Access Point (HPP_CONTROL_V1) and a Station 
-    simultaneously for local/remote control.
-*   Graft Counter: Uses an Additive Offset Logic to detect skin penetration and 
-    follicle placement via current spikes as small as 0.01A.
-*   Adaptive Calibration: Automatically samples motor idle current after speed 
-    changes to set an accurate baseline.
-*   Surgical Soft-Start: Implements a RAMP_STEP (10 units/50ms) to provide 
-    smooth needle entry and prevent tissue trauma.
-*   Persistent Memory (NVM): Saves all user settings (Speed, Thresholds,
-    Graft Count, WiFi) so they remain after power loss.
-*   TFT Multi-Screen:
-    - Screen 0: Surgical Dashboard (Speed, RPM, Graft Counter).
-    - Screen 1: Energy Status (Live V, A, W, and Battery %).
-    - Screen 2: Network Status (IP Address and connected users).
+5. CORE SYSTEM FEATURES
+-----------------------
+*   On-Device Local Menu Mode: Dual long-press of both buttons for 1 second toggles 
+    into a local menu. Scroll options with Left short-press. Select/adjust with Right
+    short-press. Options include Speed, Mode (Normal/Osc), Hardware (V1/V2), and Counter Reset.
+*   Dynamic USB Charging Detection: Real-time comparison between board-level VBAT 
+    (GPIO 34) and battery cell terminal voltage (MAX471). Displays glowing 'CHG' bolt 
+    when USB charging power is connected.
+*   Current-Speed Sensor Fusion Counting (V1): Counts a follicle skin hit only when 
+    current draw SPIKES above baseline AND actual motor RPM DIPS below a customizable percentage
+    (default 10%), completely eliminating false counts.
+*   Real-Time Telemetry Graph: HTML5 Canvas rolling plot on the Diagnostics web panel 
+    rendering Voltage (cyan), Current (yellow), and RPM (green) at 2Hz. No internet required.
+*   Dual-Core Partitioning (FreeRTOS): Heavy operations (Web Server/UI) run on Core 1, 
+    while safety checks, analog sampling, and graft counting run on Core 0 at 100Hz.
+*   eFuse Characterized Analog Sampling (esp_adc_cal): Reads raw steps characterized 
+    directly to true millivolts using calibration curves burned at the factory, eliminating
+    Vref non-linearity.
 
 6. SAFETY MECHANISMS
 --------------------
-*   Overcurrent Protection: Automatically halts the motor if current exceeds 
-    user-defined limit (Default: 2.5A).
-*   Low Battery Protection: Halts operation if voltage drops below 3.2V to 
-    prevent cell damage.
-*   Engineering Debug Mode: Allows bypassing safety trips for bench testing. 
-    Displays a flashing "DEBUG" warning on the TFT display.
-*   Visual Alarms: TFT display shows "!!! ALARM !!!" and Web UI shows "SYSTEM HALTED"
-    upon safety triggers.
+*   Overcurrent Protection: Instantly halts motor in 10ms if current draw > Max limit (Default 2.5A).
+*   Low Battery Protection: Instantly halts motor if cell voltage < 3.2V.
+*   Engineering Debug Mode: Bypasses safety trips for bench-testing, showing full-screen warning.
 
-7. SURGICAL PRE-USE CHECKLIST & PRECAUTIONS
--------------------------------------------
-1.  Sterilization: Ensure the mechanical hair pen and needles are sterilized 
-    according to medical standards before use. 
-2.  Electronics Isolation: Keep the ESP32 and Driver control box away from 
-    saline and surgical fluids.
-3.  Common Ground: Ensure Battery (-), ESP32 GND, and Driver GND are tied.
-4.  Polarity: Verify Battery (+) enters MAX471 [RS+] pin.
-5.  Motor Load: Do not exceed 3.0A continuous draw.
-6.  Firmware: Ensure "penetrationOffset" is set higher than the motor's 
-    natural noise floor (Recommended: 0.04A for skin penetration).
-7.  Mechanical: Ensure the needle is sharp and properly seated in the micro-motor.
-
-8. OPERATING INSTRUCTIONS
+7. OPERATING INSTRUCTIONS
 -------------------------
 
-A. Initial Setup:
+A. INITIAL SETUP:
    1. Power on the device.
-   2. Connect your phone to WiFi: "HPP_CONTROL_V1" (Pass: 12345678).
+   2. Connect your phone/tablet WiFi to AP: "HPP_CONTROL_V1" (Pass: 12345678).
    3. Open browser to 192.168.4.1.
 
-B. Calibration (CRITICAL):
-   Calibration ensures the system ignores air-load and only counts skin hits.
-   1. Ensure the hair pen needle is spinning freely in the air.
-   2. Go to "READINGS" page.
-   3. Click "RE-CALIBRATE".
-   4. The system will wait for target speed, then sample for 2 seconds.
-   5. Do NOT touch the skin during this process.
+B. SELECT MOTOR VERSION:
+   1. Go to "Settings" on the Web GUI or enter the Local Menu on the device.
+   2. Set Motor Hardware Version: "Version 1" if utilizing the N20 encoder motor; "Version 2" if utilizing a standard motor.
+   3. On Version 1, adjust "Speed Dip (%)" sensitivity as needed (Default 10%).
 
-C. Graft/Penetration Counting:
-   The system calculates graft placement using: [Baseline Current + Offset].
-   If your baseline (air load) is 0.29A and Offset is 0.04A, any current 
-   above 0.33A registers as a follicle implantation/extraction hit.
+C. CALIBRATION:
+   Calibration ensures the system establishes correct air-load idle parameters.
+   1. Hold the surgical pen in the air.
+   2. Select "RE-CALIBRATE" from the Web GUI or Local Menu.
+   3. The motor will spin for 2 seconds to establish baseline current and baseline RPM. Do NOT touch the skin during this time.
 
-9. CONFIGURATION GUIDE (SETTINGS)
----------------------------------
-*   Spike (A): The amount of current increase required to count a hit.
-*   Hyst (A): The amount the current must drop below the spike to reset 
-    the trigger.
-*   Max I (A): The absolute safety ceiling.
-*   Min V (V): The battery cut-off voltage.
+D. INTEGRATED WEB STATUS ROTATION:
+   Web dashboard spinning gear icon rotates at a speed proportional to active motor speed, coming to a complete halt when the motor is stopped.
 
-10. FACTORY RESET
------------------
-To clear all NVM data and restore defaults:
-1. Go to SETTINGS.
-2. Scroll to DANGER ZONE.
-3. Click "RESET TO FACTORY". 
-Note: This will also clear saved WiFi Station credentials.
+8. CONFIGURATION PARAMETERS (SETTINGS)
+--------------------------------------
+*   Spike (A): The amount of current increase required to trigger a graft count.
+*   Hyst (A): The current drop below the spike required to reset the trigger.
+*   Speed Dip (%): The percentage drop in RPM below baseline required to confirm graft penetration.
+*   Max I (A) / Min V (V): Safety limits.
 
 ================================================================================
-              (c) 2024 EL-BASEET INDUSTRIAL SOLUTIONS - V1.0
+              (c) 2026 EL-BASEET INDUSTRIAL SOLUTIONS - V2.0
 ================================================================================

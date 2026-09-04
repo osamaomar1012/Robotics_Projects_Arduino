@@ -28,7 +28,7 @@ extern float batteryVoltage, batteryCurrent, batteryPower, maxCurrentThreshold, 
 extern float penetrationOffset, penetrationHysteresis;
 extern bool calibrationNeeded;
 extern uint32_t estimatedRPM, penetrationCount;
-extern uint8_t batteryPercent, webBaseSpeed, motorVersion;
+extern uint8_t batteryPercent, webBaseSpeed, motorVersion, currentMenuItem;
 extern void setMotorVersion(uint8_t version);
 enum OperationState { IDLE, RUNNING, PAUSED };
 enum ScanState { SCAN_IDLE, SCAN_REQUESTED, SCANNING, SCAN_COMPLETE }; extern volatile ScanState scanState;
@@ -36,7 +36,7 @@ extern String initialScanResultsJson;
 extern OperationState operationState;
 extern String patientMobile;
 extern uint32_t screenSwitchTime;
-extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, debugMode, isPenetrating, wifiConnecting, oscillatingMode, isCharging;
+extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, debugMode, isPenetrating, wifiConnecting, oscillatingMode, isCharging, inMenuMode;
   extern String patientName, patientAge, patientNationality, doctorName;
 extern unsigned long operationTimeAccumulator, lastTimeCapture; extern uint32_t pauseCount;
 extern uint32_t oscillationDuration;
@@ -188,6 +188,17 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 <span id="pwr_status" class="value" style="font-size: 1.1em; font-weight: bold;">Checking...</span>
             </div>
         </div>
+
+        <div class="card" style="flex-direction: column; padding: 18px 25px; gap: 8px;">
+            <div style="font-weight: bold; font-size: 0.8em; color: #38bdf8; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; width:100%; text-align: left; margin-bottom: 10px;">Live Telemetry Plot</div>
+            <canvas id="telemetryGraph" width="340" height="150" style="width: 100%; border-radius: 8px; background: #070b13; border: 1px solid rgba(255,255,255,0.05);"></canvas>
+            <div style="display: flex; justify-content: space-around; font-size: 0.7em; margin-top: 5px; width: 100%;">
+                <span style="color: #38bdf8; font-weight: bold;">● Volts (x30)</span>
+                <span style="color: #facc15; font-weight: bold;">● Amps (x120)</span>
+                <span style="color: #10b981; font-weight: bold;">● RPM (x0.15)</span>
+            </div>
+        </div>
+
         <div class="card">
             <div><div class="label">CURRENT</div><div id="i" class="value">0.0A</div></div>
             <div><div class="label">POWER</div><div id="p" class="value">0.0W</div></div>
@@ -209,6 +220,52 @@ const char READINGS_HTML[] PROGMEM = R"=====(
     </div>
     <script>
         function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
+
+        // --- Real-time Rolling Graph Logic ---
+        const canvas = document.getElementById('telemetryGraph');
+        const ctx = canvas.getContext('2d');
+        const maxPoints = 50;
+        const vData = [];
+        const iData = [];
+        const rpmData = [];
+
+        function drawGraph() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw visual gridlines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+            ctx.lineWidth = 1;
+            for (let y = 30; y < canvas.height; y += 30) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // Render scaled data series
+            plotSeries(vData, '#38bdf8', 30);    // Scale Voltage (e.g. 4V -> 120px)
+            plotSeries(iData, '#facc15', 120);   // Scale Current (e.g. 0.5A -> 60px)
+            plotSeries(rpmData, '#10b981', 0.15); // Scale RPM (e.g. 800 RPM -> 120px)
+        }
+
+        function plotSeries(data, color, scale) {
+            if (data.length < 2) return;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const dx = canvas.width / (maxPoints - 1);
+            for (let i = 0; i < data.length; i++) {
+                const x = i * dx;
+                const scaledVal = data[i] * scale;
+                const y = canvas.height - Math.min(scaledVal, canvas.height - 5);
+                
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
         setInterval(() => {
             fetch('/telemetry').then(r => r.json()).then(data => {
                 document.getElementById('v').innerText = data.v.toFixed(2) + 'V';
@@ -232,8 +289,20 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 document.getElementById('ip').innerText = data.ip;
                 document.getElementById('calMsg').style.display = data.calib ? 'block' : 'none';
                 document.getElementById('calBtn').style.display = data.calib ? 'none' : 'inline-block';
+
+                // Append and roll the telemetry arrays
+                vData.push(data.v);
+                if (vData.length > maxPoints) vData.shift();
+
+                iData.push(data.i);
+                if (iData.length > maxPoints) iData.shift();
+
+                rpmData.push(data.rpm);
+                if (rpmData.length > maxPoints) rpmData.shift();
+
+                drawGraph();
             });
-        }, 1000);
+        }, 500); // Polling every 500ms for fast telemetry plotting responsiveness
     </script>
 </body>
 </html>
@@ -429,74 +498,174 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Surgical Report</title>
+    <title>Post-Operative Surgical Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: 'Times New Roman', serif; margin: 0; padding: 0; background-color: #f4f4f4; }
-        .report-container { max-width: 800px; margin: 20px auto; background: white; padding: 30px; border: 1px solid #ccc; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        .report-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 20px; }
-        .report-header h1 { margin: 0; font-size: 24px; color: #1a237e; }
-        .report-header p { margin: 5px 0 0; font-size: 14px; color: #555; }
-        .report-header img { max-width: 150px; max-height: 70px; margin-top: 10px; }
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 20px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .report-container { max-width: 780px; margin: 10px auto; background: white; padding: 40px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.05); box-sizing: border-box; position: relative; }
+        
+        .report-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
+        .header-left { text-align: left; }
+        .header-left h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px; color: #0f172a; text-transform: uppercase; }
+        .header-left p { margin: 5px 0 0; font-size: 13px; font-weight: 500; color: #64748b; letter-spacing: 0.5px; }
+        .header-right { text-align: right; }
+        .header-right img { max-width: 140px; max-height: 60px; object-fit: contain; }
+        
         .section { margin-bottom: 25px; }
-        .section h2 { font-size: 18px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .grid-item { background-color: #f9f9f9; padding: 15px; border-radius: 5px; border: 1px solid #e0e0e0; }
-        .grid-item .label { font-weight: bold; color: #444; display: block; margin-bottom: 5px; font-size: 14px; }
-        .grid-item .value { font-size: 16px; color: #111; }
-        .summary-item { background-color: #e3f2fd; border-left: 5px solid #2196f3; padding: 15px; margin-bottom: 10px; }
-        .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #888; border-top: 1px solid #ccc; padding-top: 15px; }
+        .section h2 { font-size: 14px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 2px solid #f1f5f9; padding-bottom: 6px; margin-bottom: 15px; text-align: left; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .grid-item { background-color: #f8fafc; padding: 12px 18px; border-radius: 8px; border: 1px solid #edf2f7; text-align: left; }
+        .grid-item .label { font-weight: 600; color: #64748b; display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .grid-item .value { font-size: 14px; font-weight: 700; color: #0f172a; }
+        
+        .metrics-card { background: linear-gradient(135deg, #0f172a, #1e293b); color: white; padding: 25px; border-radius: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.05); }
+        .metric-item { text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+        .metric-item:last-child { border-right: none; }
+        .metric-item .label { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
+        .metric-item .value { font-size: 24px; font-weight: 800; color: #38bdf8; font-family: 'Courier New', Courier, monospace; }
+        
+        .remarks-section { border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; background: #fff; margin-bottom: 30px; text-align: left; }
+        .remarks-title { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .remarks-line { height: 1px; background-color: #cbd5e1; margin-top: 25px; margin-bottom: 5px; width: 100%; }
+        
+        .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; margin-top: 40px; }
+        .signature-box { border-top: 1px solid #cbd5e1; padding-top: 8px; text-align: center; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+        
+        .print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; background: #0284c7; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4); font-family: sans-serif; transition: 0.3s; z-index: 1000; text-transform: uppercase; letter-spacing: 1px; }
+        .print-btn:hover { background: #0369a1; transform: scale(1.02); }
+        .print-btn:active { transform: scale(0.98); }
+        
         @media print {
-            body { background-color: white; }
-            .report-container { box-shadow: none; border: none; }
+            .print-btn { display: none !important; }
+            body { background: white; color: black; padding: 0; }
+            .report-container { border: none; box-shadow: none; margin: 0; padding: 0; width: 100%; }
+            .grid-item { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .metrics-card { background: #0f172a !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .metrics-card .metric-item .value { color: #38bdf8 !important; }
         }
+        
+        @page { size: A4; margin: 20mm; }
+        
         @media (max-width: 768px) {
-            .report-container { margin: 10px; padding: 15px; }
+            .report-container { margin: 10px; padding: 20px; }
             .grid { grid-template-columns: 1fr; }
-            .report-header h1 { font-size: 20px; }
+            .metrics-card { grid-template-columns: 1fr; gap: 20px; }
+            .metric-item { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; }
+            .metric-item:last-child { border-bottom: none; padding-bottom: 0; }
+            .print-btn { top: auto; bottom: 20px; right: 20px; width: calc(100% - 40px); left: 20px; text-align: center; }
         }
     </style>
 </head>
 <body>
+    <button class="print-btn" onclick="window.print()">🖨️ Print Clinical Report</button>
+    
     <div class="report-container">
-        <div class="report-header">
-            <h1>POST-OPERATIVE REPORT</h1>
-            <img src="/img/logo.jpg" alt="Logo">
-            <p>EL-BASEET HAIR PEN-V1 Surgical Assistant</p>
+    <div class="report-header">
+        <div class="header-left">
+            <h1>Surgical Operative Report</h1>
+            <p>EL-BASEET HAIR PEN-V2 • Medical Integration</p>
         </div>
+        <div class="header-right">
+            <img src="/img/logo.jpg" alt="Clinic Logo">
+        </div>
+    </div>
 
         <div class="section">
-            <h2>Patient Information</h2>
+            <h2>Patient Demographics</h2>
             <div class="grid">
                 <div class="grid-item"><span class="label">Patient Name:</span><span class="value">##PATIENT_NAME##</span></div>
-                <div class="grid-item"><span class="label">Patient Age:</span><span class="value">##PATIENT_AGE##</span></div>
-                <div class="grid-item"><span class="label">Patient Mobile:</span><span class="value">##PATIENT_MOBILE##</span></div>
+                <div class="grid-item"><span class="label">Age / Gender:</span><span class="value">##PATIENT_AGE##</span></div>
+                <div class="grid-item"><span class="label">Mobile Number:</span><span class="value">##PATIENT_MOBILE##</span></div>
                 <div class="grid-item"><span class="label">Nationality:</span><span class="value">##PATIENT_NATIONALITY##</span></div>
-                <div class="grid-item"><span class="label">Date of Operation:</span><span class="value">##DATE##</span></div>
+                <div class="grid-item" style="grid-column: 1 / span 2;"><span class="label">Date of Procedure:</span><span class="value">##DATE##</span></div>
             </div>
         </div>
 
         <div class="section">
             <h2>Surgical Team</h2>
             <div class="grid">
-                <div class="grid-item"><span class="label">Lead Surgeon / Doctor:</span><span class="value">##DOCTOR_NAME##</span></div>
+                <div class="grid-item" style="grid-column: 1 / span 2;"><span class="label">Lead Implanting Surgeon:</span><span class="value">##DOCTOR_NAME##</span></div>
             </div>
         </div>
 
         <div class="section">
-            <h2>Operation Metrics</h2>
-            <div class="grid">
-                <div class="summary-item"><span class="label">Total Grafts Implanted/Extracted:</span><span class="value">##GRAFT_COUNT##</span></div>
-                <div class="summary-item"><span class="label">Total Operation Time:</span><span class="value">##OP_TIME##</span></div>
-                <div class="summary-item"><span class="label">Number of Pauses:</span><span class="value">##PAUSE_COUNT##</span></div>
+            <h2>Procedure Operative Metrics</h2>
+            <div class="metrics-card">
+                <div class="metric-item">
+                    <span class="label">Total Grafts</span>
+                    <span id="graftsCount" class="value">##GRAFT_COUNT##</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label">Operative Duration</span>
+                    <span id="opDuration" class="value">##OP_TIME##</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label">Total Pauses</span>
+                    <span class="value">##PAUSE_COUNT##</span>
+                </div>
+            </div>
+            <div class="grid" style="margin-top: -15px;">
+                <div class="grid-item" style="grid-column: 1 / span 2; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #0284c7;">
+                    <span class="label" style="margin: 0; font-size: 11px;">Average Operational Flow Rate:</span>
+                    <span id="graftRate" class="value" style="color: #0284c7; font-size: 15px;">Calculating...</span>
+                </div>
             </div>
         </div>
 
+        <div class="remarks-section">
+            <div class="remarks-title">Clinical Notes & Surgeon Remarks</div>
+            <div style="font-size: 12px; color: #64748b; line-height: 1.5; margin-bottom: 25px;">Enter custom observations, post-op instructions, or graft survival notes below:</div>
+            <div class="remarks-line"></div>
+            <div class="remarks-line"></div>
+            <div class="remarks-line"></div>
+        </div>
+
+        <div class="signature-grid">
+            <div class="signature-box">Surgeon Signature</div>
+            <div class="signature-box">Clinical Stamp / Date</div>
+        </div>
+
         <div class="footer">
-            <p>This report was automatically generated by the EL-BASEET Surgical Assistant System.</p>
-            <p>&copy; 2024 EL-BASEET Industrial Solutions</p>
+            <p>This post-operative surgical sheet was automatically generated by the EL-BASEET Hair Pen-V2 integration system.</p>
+            <p>&copy; 2026 EL-BASEET Industrial & Medical Solutions</p>
         </div>
     </div>
+
+    <script>
+        window.onload = function() {
+            try {
+                // Parse graft count
+                let grafts = parseInt(document.getElementById('graftsCount').innerText) || 0;
+                
+                // Parse operation duration (e.g. "0h 15m 30s")
+                let timeText = document.getElementById('opDuration').innerText;
+                let hours = 0, minutes = 0, seconds = 0;
+                
+                let hMatch = timeText.match(/(\d+)\s*h/);
+                let mMatch = timeText.match(/(\d+)\s*m/);
+                let sMatch = timeText.match(/(\d+)\s*s/);
+                
+                if (hMatch) hours = parseInt(hMatch[1]);
+                if (mMatch) minutes = parseInt(mMatch[1]);
+                if (sMatch) seconds = parseInt(sMatch[1]);
+                
+                let totalHours = hours + (minutes / 60) + (seconds / 3600);
+                
+                let rate = 0;
+                if (totalHours > 0) {
+                    rate = Math.round(grafts / totalHours);
+                }
+                
+                document.getElementById('graftRate').innerText = rate + " grafts / hour";
+            } catch (e) {
+                document.getElementById('graftRate').innerText = "N/A";
+                console.error("Error calculating average graft rate:", e);
+            }
+        };
+    </script>
 </body>
 </html>
 )=====";
@@ -754,7 +923,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>EL-BASEET HAIR PEN-V1</title>
+    <title>EL-BASEET HAIR PEN-V2</title>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; margin: 0; min-height: 100vh; }
         .container { max-width: 420px; margin: auto; padding: 25px; }
@@ -785,7 +954,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
     <div class="container">
         <div class="header-wrap">
             <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-            <h2>EL-BASEET<br><span style="font-size: 0.65em; letter-spacing: 4px; color: #38bdf8;">HAIR PEN-V1</span><br><span style="font-size: 0.35em; letter-spacing: 2px; color: #94a3b8;">SURGICAL ASSISTANT</span></h2>
+            <h2>EL-BASEET<br><span style="font-size: 0.65em; letter-spacing: 4px; color: #38bdf8;">HAIR PEN-V2</span><br><span style="font-size: 0.35em; letter-spacing: 2px; color: #94a3b8;">SURGICAL ASSISTANT</span></h2>
         </div>
         <div id="alarmBox" class="card alarm">SYSTEM HALTED: OVERLOAD</div>
         <div id="patientCard" class="card" style="display:none;">
@@ -837,6 +1006,15 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
                 document.getElementById('alarmBox').style.display = (data.trip) ? 'block' : 'none';                
                 
+                // Control Logo Spinning Animation based on real-time motor speed
+                let logo = document.querySelector('.logo-svg');
+                if (data.spd > 10) {
+                    let duration = (255 / data.spd) * 1.5; // Speed proportional rotation duration
+                    logo.style.animation = `spin ${duration}s linear infinite`;
+                } else {
+                    logo.style.animation = 'none';
+                }
+
                 // Patient Card
                 if (data.pName && data.pName !== 'N/A') {
                     document.getElementById('patientCard').style.display = 'block';
@@ -1587,7 +1765,6 @@ void setupWeb() {
         WiFi.begin(s.c_str(), p.c_str());
     }
 
-    // Create reports directory if it doesn't exist
     if (!SPIFFS.exists("/reports")) {
         SPIFFS.mkdir("/reports");
         Serial.println("Created /reports directory.");
@@ -1598,7 +1775,19 @@ void setupWeb() {
     if (!SPIFFS.exists("/img")) {
         SPIFFS.mkdir("/img");
     }
-    if (!SPIFFS.exists("/template/report.html")) {
+    
+    // Graceful Template Upgrade: Overwrite old Times New Roman template with the new modern one, preserving non-default modifications
+    if (SPIFFS.exists("/template/report.html")) {
+        fs::File f = SPIFFS.open("/template/report.html", "r");
+        if (f) {
+            String content = f.readString();
+            f.close();
+            if (content.indexOf("Times New Roman") != -1) {
+                createDefaultTemplate();
+                Serial.println("Upgraded legacy report template in SPIFFS to modern clinical template.");
+            }
+        }
+    } else {
         createDefaultTemplate();
     }
 

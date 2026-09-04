@@ -3,60 +3,82 @@ Senior Integration Lead
 Cairo,Egypt
 ================================================================================
 PROJECT: ESP32_TTGO_HPP_V2 (Motor Control & Battery Telemetry)
-VERSION: 2.0
+VERSION: 2.0 - REAL-TIME SENSOR FUSION & DUAL-CORE MULTITASKING
 ================================================================================
 
-1. HARDWARE COMPONENTS:
------------------------
-- MCU: LILYGO TTGO T-Display (Integrated 1.14" ST7789 TFT)
-- Motor Driver: DRV8833 Dual H-Bridge
-- Sensor: MAX471 Voltage & Current Sensor
-- Power: 18650 Li-ion Battery
-- Actuator: DC Brushed Motor
+1. HARDWARE COMPONENT VARIANTS:
+-------------------------------
+The unified firmware binary dynamically supports two surgical pen variants:
+- VERSION 1: Premium Follicle Extractor
+  * Actuator: JGA12-N20 Micro Metal Gear 6V DC Motor with Quadrature Encoder.
+  * Counter: Current-Speed Sensor Fusion (MAX471 spike + Encoder speed dip).
+  * Speed: Real physical RPM measured by high-speed hardware interrupts.
+- VERSION 2: Standard Follicle Extractor
+  * Actuator: Standard DC Brushed Motor (No Encoder).
+  * Counter: Pure Current-Spike Detection.
+  * Speed: Estimated RPM proportional to applied motor voltage.
 
 2. PIN MAPPING (ESP32 TTGO T-Display):
------------------------
-FUNCTION        | GPIO    | NOTES
-----------------|---------|-----------------------------------------------------
-TFT Display     | -       | Internally connected via SPI
-MOTOR_IN1 (PWM) | 13      | Controls Speed/Direction via LEDC Channel 0
-MOTOR_IN2 (PWM) | 12      | Controls Speed/Direction via LEDC Channel 1
-MAX471 VT       | 36      | Analog Input (Voltage: 1V out = 5V in)
-MAX471 AT       | 32      | Analog Input (Current: 1V out = 1A in)
+--------------------------------------
+FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
+-----------------|------|------------------|------------------------------------
+TFT Display      | -    | -                | Internally connected via SPI
+MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via DRV8833 OUT1
+MOTOR_IN2 (PWM)  | 12   | White (Motor -)  | Controls Speed/Dir via DRV8833 OUT2
+MAX471 VT (Volt) | 36   | -                | Analog Input (1V out = 5V in) - ADC1_CH0
+MAX471 AT (Amp)  | 32   | -                | Analog Input (1V out = 1A in) - ADC1_CH4
+ADC Enable Pin   | 14   | -                | Enables Internal battery divider
+Internal VBAT    | 34   | -                | Onboard battery divider - ADC1_CH6
+Encoder Chan A   | 25   | Yellow           | Quadrature Channel A (Interrupt)
+Encoder Chan B   | 26   | Green            | Quadrature Channel B (State Pin)
+Encoder VCC      | 3V3  | Black            | Encoder Power (3.3V)
+Encoder GND      | GND  | Blue             | Encoder Ground Reference
 
-3. WIRING SCHEMATIC:
---------------------
+3. HARDWARE CONNECTION FLOW:
+----------------------------
+18650 LI-ION CELL:
+  Positive (+)   -> MAX471 SENSOR [RS+] AND TTGO VBAT connector pin
+  Negative (-)   -> ESP32 GND (Common Ground)
+
 MAX471 SENSOR:
-  [RS+]   -> Battery Positive (+)
-  [RS-]   -> DRV8833 VCC
-  [GND]   -> Common Ground 
-  [VT]    -> ESP32 GPIO 36
-  [AT]    -> ESP32 GPIO 32
+  [RS+]          -> Battery Positive (+)
+  [RS-]          -> DRV8833 VCC
+  [GND]          -> Common Ground
+  [VT]           -> ESP32 GPIO 36
+  [AT]           -> ESP32 GPIO 32
 
-DRV8833 H-BRIDGE:
-  [VCC]   -> MAX471 RS-
-  [GND]   -> Common Ground
-  [IN1]   -> ESP32 GPIO 13
-  [IN2]   -> ESP32 GPIO 12
-  [OUT1]  -> Motor Terminal A
-  [OUT2]  -> Motor Terminal B
+DRV8833 MOTOR DRIVER:
+  [VCC]          -> MAX471 RS-
+  [GND]          -> Common Ground
+  [IN1]          -> ESP32 GPIO 13
+  [IN2]          -> ESP32 GPIO 12
+  [OUT1]         -> JGA12-N20 Motor Terminal (+) [Red Wire]
+  [OUT2]         -> JGA12-N20 Motor Terminal (-) [White Wire]
 
-4. CALIPER & CALIBRATION:
+4. REAL-TIME MULTI-CORE WORKPARTITIONING:
+-----------------------------------------
+To ensure medical-grade counting reliability and instantaneous safety stops, the system distributes processes across dual cores via FreeRTOS:
+- CORE 0 (Background task, 100Hz high-priority loop):
+  * Sampling: Characterized MAX471 analog inputs.
+  * Safety: 10ms overcurrent trip (max 2.5A) and low battery cutoff.
+  * Motion: Soft-start speed ramping and alternating FUE oscillation.
+  * Counting: Current-Speed Sensor Fusion follicle counting.
+- CORE 1 (Standard main loop & server context):
+  * UI: Multi-screen rotation and welcoming animations.
+  * Inputs: Dual-button press debouncing.
+  * Network: AP and Station asynchronous Web Server.
+
+5. CHARACTERIZED ANALOG SYSTEM (esp_adc_cal):
+----------------------------------------------
+The system completely bypasses uncalibrated raw analog reads. It uses the ESP32 characterization API to read Vref calibration curves burned into the eFuse at the factory.
+- VT Analog (VT): `esp_adc_cal_raw_to_voltage` maps GPIO 36 raw readings directly to millivolts, divided by 1000 and scaled by 5.0.
+- AT Analog (AT): Characterizes GPIO 32 directly to millivolts, mapped linearly to Amperes (1000mV = 1.0A).
+- VBAT Analog: Gated by GPIO 14, characterizing GPIO 34 directly to millivolts, scaled by 2.0 (100k/100k onboard divider).
+
+6. CORE SYSTEM FEATURES:
 -------------------------
-The current ADC logic assumes a 3.3V reference and 12-bit resolution (4095).
-Calculation Logic:
-- Voltage = (rawVT / 4095.0) * 3.3 * 5.0
-- Current = (rawAT / 4095.0) * 3.3
-
-5. CODE LOGIC SUMMARY:
-----------------------
-- Display Setup: Uses TFT_eSPI library, configured for the TTGO T-Display.
-- PWM: Uses ESP32 'ledc' peripheral at 5kHz / 8-bit resolution.
-- Telemetry: Reads MAX471 every 50ms and updates the display with a Speed ramp.
-
-6. SAFETY NOTES:
-----------------
-- Ensure common ground between Battery, MAX471, DRV8833, and ESP32.
-- The ESP32 ADC is non-linear; for high precision, consider using the 
-  esp_adc_cal library to compensate for Vref variations.
+- On-Device Local Menu: Triggered by a dual long press of both buttons. Left scrolls, Right selects. Adjusts speed, mode, motor version, and resets counting on-device.
+- Differential Charging: Compares internal VBAT (GPIO 34) and external battery cell voltage (MAX471) to dynamically detect USB power, showing the charging icon (CHG) on the TFT screen.
+- Web Diagnostics Scope: HTML5 Canvas-based rolling plot rendering real-time scrolling Voltage, Current, and RPM at 2Hz on the diagnostics panel without internet connectivity.
+- Proportional Web Logo: Dashboard rotating gear animation spins at a speed proportional to actual motor speed, stopping when the motor halts.
 ================================================================================
