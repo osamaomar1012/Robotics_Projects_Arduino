@@ -12,18 +12,18 @@ HARDWARE MODULE: LILYGO T-DISPLAY-S3 (ESP32-S3)
              | (Raw Battery Power)                                      |
              v                                                          v
   +----------------------+                                   +----------------------+
-  |    MAX471 SENSOR     |                                   |  LILYGO T-DISPLAY-S3 |
+  |    INA219 SENSOR     |                                   |  LILYGO T-DISPLAY-S3 |
   |                      |                                   |  (ESP32-S3 BOARD)    |
-  | [RS+] Source In  <---+                                   |                      |
-  | [RS-] Load Out   ------------[ VCC Power In ]--------+   | [GND]   Common GND  |<--+
+  | [VIN+] Source In  <---+                                   |                      |
+  | [VIN-] Load Out   ------------[ VCC Power In ]--------+   | [GND]   Common GND  |<--+
   |                      |                               |   | [3V3]   3.3V Power  |--+|
-  | [VT]  Voltage Out  ----------> [ S3 GPIO 1 ]         |   | [GPIO 1]  VT In (VT) |<-+|
-  | [AT]  Current Out  ----------> [ S3 GPIO 2 ]         |   | [GPIO 2]  AT In (AT) |<-+|
-  | [GND] Common GND   ---+                              |   | [GPIO 13] PWM IN1   |--+|
-  +----------------------+ |                             |   | [GPIO 12] PWM IN2   |--+|
-                           v                             |   | [GPIO 10] Enc. A    |<-+|
-                 (Common System Ground)                  |   | [GPIO 11] Enc. B    |<-+|
-                           ^                             |   | [GPIO 15] Pwr Gate  |--+| (Must be HIGH!)
+  | [VT]  Voltage Out  ----------> [ S3 GPIO 43 ]         |   | [GPIO 43]  VT In (VT) |<-+|
+  | [AT]  Current Out  ----------> [ S3 GPIO 44 ]         |   | [GPIO 44]  AT In (AT) |<-+|
+  | [GND] Common GND   ---+                              |   | [GPIO 433] PWM IN1   |--+|
+  +----------------------+ |                             |   | [GPIO 432] PWM IN2   |--+|
+                           v                             |   | [GPIO 430] Enc. A    |<-+|
+                 (Common System Ground)                  |   | [GPIO 431] Enc. B    |<-+|
+                           ^                             |   | [GPIO 435] Pwr Gate  |--+| (Must be HIGH!)
                            |                             |   | [GPIO 4]  VBAT In   |<-+| (Onboard Battery)
   +------------------------+                             |   +---------------------+  ||
   |                                                      |                            ||
@@ -36,8 +36,8 @@ HARDWARE MODULE: LILYGO T-DISPLAY-S3 (ESP32-S3)
   | [VCC]  Power Input   |                                                            ||
   | [GND]  Common Ground |                                                            ||
   | [SLP]  Sleep Pin     |<----------[ S3 3V3 ]                                       ||
-  | [IN1]  PWM Speed In  |<----------[ S3 GPIO 13 ]                                   ||
-  | [IN2]  Direction In  |<----------[ S3 GPIO 12 ]                                   ||
+  | [IN1]  PWM Speed In  |<----------[ S3 GPIO 433 ]                                   ||
+  | [IN2]  Direction In  |<----------[ S3 GPIO 432 ]                                   ||
   |                      |                                                            ||
   | [OUT1] Motor Out 1   |---------[RED Wire]----------+                              ||
   | [OUT2] Motor Out 2   |---------[WHITE Wire]------+ |                              ||
@@ -51,8 +51,8 @@ HARDWARE MODULE: LILYGO T-DISPLAY-S3 (ESP32-S3)
                                            |                      |                   ||
                                            | [VCC] Encoder VCC    |<--[BLACK Wire]----+|
                                            | [GND] Encoder GND    |<--[BLUE Wire]------+
-                                           | [A]   Encoder Chan A |<--[YELLOW Wire]----+ (GPIO 10)
-                                           | [B]   Encoder Chan B |<--[GREEN Wire]-----+ (GPIO 11)
+                                           | [A]   Encoder Chan A |<--[YELLOW Wire]----+ (GPIO 430)
+                                           | [B]   Encoder Chan B |<--[GREEN Wire]-----+ (GPIO 431)
                                            +----------------------+
 
 --------------------------------------------------------------------------------
@@ -66,8 +66,8 @@ JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
   |                       |                    |                       |
   |  [OUT1] Motor Out + ------+                | [GND]   Common Ground | <---+
   |  [OUT2] Motor Out - ----+ |                | [3V3]   Power Output  | <--+ |
-  |                       | | |                | [GPIO 10] Encoder A   | <---+ |
-  +-----------------------+ | |                | [GPIO 11] Encoder B   | <--+ | |
+  |                       | | |                | [GPIO 430] Encoder A   | <---+ |
+  +-----------------------+ | |                | [GPIO 431] Encoder B   | <--+ | |
                             | |                +-----------------------+    | | |
                             | |                                             | | |
                             | |    JGA12-N20 ENCODER MOTOR                  | | |
@@ -76,39 +76,39 @@ JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
                             +----->| [M-] Motor Pin -     | [WHITE Wire]    | | |
                                    | [VCC] Encoder VCC    |<--[BLACK Wire]--+ | |
                                    | [GND] Encoder GND    |<--[BLUE Wire]-----+ |
-                                   | [A]   Encoder Chan A |<--[YELLOW Wire]-----+ (GPIO 10)
-                                   | [B]   Encoder Chan B |<--[GREEN Wire]------+ (GPIO 11)
+                                   | [A]   Encoder Chan A |<--[YELLOW Wire]-----+ (GPIO 430)
+                                   | [B]   Encoder Chan B |<--[GREEN Wire]------+ (GPIO 431)
                                    +----------------------+
 
 18650 BATTERY:
-  Positive (+)            -> MAX471 Source Input [RS+] AND Board Battery Connector (+)
+  Positive (+)            -> INA219 Source Input [VIN+] AND Board Battery Connector (+)
   Negative (-)            -> ESP32 GND (Common)
 
-MAX471 VOLTAGE/CURRENT SENSOR:
-  RS+ (Positive Input)    -> 18650 Battery (+)
-  RS- (Positive Output)   -> DRV8833 VCC
-  VT  (Voltage Signal)    -> T-Display-S3 GPIO 1 (Analog In - ADC1_CH0)
-  AT  (Current Signal)    -> T-Display-S3 GPIO 2 (Analog In - ADC1_CH1)
+INA219 VOLTAGE/CURRENT SENSOR:
+  VIN+ (Positive Input)    -> 18650 Battery (+)
+  VIN- (Positive Output)   -> DRV8833 VCC
+  SDA    -> T-Display-S3 GPIO 43 (I2C SDA)
+  SCL    -> T-Display-S3 GPIO 44 (I2C SCL)
   GND                     -> ESP32 GND (Common)
 
 LILYGO T-DISPLAY-S3 BOARD:
   GND                     -> Ground reference
   3.3V                    -> Powers DRV8833 SLP and N20 Encoder VCC
-  GPIO 15 (Power Gate)    -> Internally gates on peripheral & LCD power (Must be HIGH!)
+  GPIO 435 (Power Gate)    -> Internally gates on peripheral & LCD power (Must be HIGH!)
   GPIO 38 (Backlight)     -> LCD screen backlight control (Must be HIGH for battery power!)
   GPIO 4  (Battery ADC)   -> Onboard battery connector divider input (ADC1_CH3)
   GPIO 0  (BOOT Button)   -> Onboard Left Button (Active LOW)
-  GPIO 14 (KEY Button)    -> Onboard Right Button (Active LOW)
-  GPIO 13 (PWM OUT1)      -> DRV8833 IN1
-  GPIO 12 (PWM OUT2)      -> DRV8833 IN2
-  GPIO 10 (Interrupt)     -> N20 Encoder Channel A (Yellow)
-  GPIO 11 (State Check)   -> N20 Encoder Channel B (Green)
+  GPIO 434 (KEY Button)    -> Onboard Right Button (Active LOW)
+  GPIO 433 (PWM OUT1)      -> DRV8833 IN1
+  GPIO 432 (PWM OUT2)      -> DRV8833 IN2
+  GPIO 430 (Interrupt)     -> N20 Encoder Channel A (Yellow)
+  GPIO 431 (State Check)   -> N20 Encoder Channel B (Green)
 
 DRV8833 MOTOR DRIVER:
-  VCC                     -> MAX471 RS-
+  VCC                     -> INA219 VIN-
   GND                     -> ESP32 GND (Common)
-  IN1  (Logic)            -> T-Display-S3 GPIO 13 (PWM Channel 0)
-  IN2  (Logic)            -> T-Display-S3 GPIO 12 (PWM Channel 1)
+  IN1  (Logic)            -> T-Display-S3 GPIO 433 (PWM Channel 0)
+  IN2  (Logic)            -> T-Display-S3 GPIO 432 (PWM Channel 1)
   OUT1 (Power)            -> JGA12-N20 Red Wire (Motor Positive +)
   OUT2 (Power)            -> JGA12-N20 White Wire (Motor Negative -)
   SLP (Sleep)             -> ESP32 3.3V (Must be HIGH to enable driver)
@@ -116,14 +116,14 @@ DRV8833 MOTOR DRIVER:
 ================================================================================
 TECHNICAL NOTES:
 --------------------------------------------------------------------------------
-1. COMMON GROUND: The Battery (-), ESP32 GND, MAX471 GND, and DRV8833 GND must
+1. COMMON GROUND: The Battery (-), ESP32 GND, INA219 GND, and DRV8833 GND must
    all be connected together for the signal references to work correctly.
 
-2. VOLTAGE DIVIDERS: The MAX471 has an internal voltage divider that divides 
+2. VOLTAGE DIVIDERS: The INA219 has an internal voltage divider that divides 
    the input voltage by 5. At a maximum battery voltage of 4.2V (fully charged 
    18650), VT will output ~0.84V, which is well within the ESP32's 3.3V ADC limit.
 
-3. CURRENT LIMITS: The MAX471 outputs 1V per 1A. Ensure your motor does not 
+3. CURRENT LIMITS: The INA219 outputs 1V per 1A. Ensure your motor does not 
    exceed 3A peak, or you may exceed the ESP32's 3.3V ADC limit on the AT pin.
 
 4. SIGNAL INTEGRITY: For the PWM lines (13 and 12), keep wires short to 
@@ -137,15 +137,15 @@ TECHNICAL NOTES:
 6. DUAL-VOLTAGE MONITORING & USB CHARGING DETECTION:
    - Onboard Battery ADC (GPIO 4): The T-Display-S3 board has a built-in
      100k/100k voltage divider connected to GPIO 4 to read battery level.
-   - Onboard Power Control (GPIO 15): Gated power to the LCD screen and internal 
-     circuits. GPIO 15 must be driven HIGH at all times during operation.
+   - Onboard Power Control (GPIO 435): Gated power to the LCD screen and internal 
+     circuits. GPIO 435 must be driven HIGH at all times during operation.
    - Dual-Sensor Comparison:
      * When USB is disconnected (battery power): Both the internal ADC (GPIO 4)
-       and external MAX471 (GPIO 1) read identical voltage levels (within 0.1V).
+       and external INA219 (GPIO 43) read identical voltage levels (within 0.1V).
      * When USB is connected: The onboard charging circuit applies power
        to the board's VBAT line, causing the internal ADC (GPIO 4) to read
        significantly higher (typically > 4.25V, or > 0.12V above the actual 
-       battery pack voltage read by the external MAX471).
+       battery pack voltage read by the external INA219).
      * Charging Status: The system dynamically compares these two readings
        to determine if the USB is plugged in and the battery is charging,
        triggering the "CHG" logo on the TFT display and detailed status on the web.

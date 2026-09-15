@@ -6,7 +6,7 @@
 
 // Module Imports
 #include "drv8833.h"
-#include "max471.h"
+#include "ina219.h"
 #include "display.h"
 #include "web_server.h"
 #include <SPIFFS.h>
@@ -59,7 +59,6 @@ void setMotorVersion(uint8_t version) {
 }
 
 // Global Variables
-esp_adc_cal_characteristics_t adc_chars; // ESP32 characterized ADC calibration structure
 TaskHandle_t TelemetryTaskHandle;        // FreeRTOS background task handle
 float maxCurrentThreshold = 2.5; // Safety limit in Amperes (adjust to motor specs)
 float minVoltageThreshold = 3.2; // 18650 safe discharge limit (Volts)
@@ -94,6 +93,8 @@ uint8_t currentScreen = 0;      // Re-enable Screen 0
 unsigned long lastScreenSwitch = 0;
 bool safetyTripped = false; // Flag to indicate a safety shutdown
 bool lowBatteryTripped = false; // Flag for low voltage protection
+unsigned long lastInteractionTime = 0;
+uint32_t deepSleepTimeoutMs = 900000; // Default 15 mins
 bool systemEnabled = false; // Default to OFF for safety on boot
 bool debugMode = false;     // Engineering mode to bypass safety stops
 bool oscillatingMode = false; // Master flag for oscillation mode
@@ -223,7 +224,7 @@ void telemetryTaskCode(void * pvParameters) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // 1. Read calibrated electrical telemetry (Current and Voltage)
-        readMAX471(batteryVoltage, batteryCurrent);
+        readINA219(batteryVoltage, batteryCurrent);
         
         // 2. Perform fast safety checks (Overcurrent and Low Voltage trips)
         handleSafetyChecks();
@@ -247,14 +248,21 @@ void setup() {
     
     // Initialize NVM Storage
     preferences.begin("hpp_v1", false);
-    
-    // Initialize Characterized ADC Calibration
-    setupADCCalibration();
+
+    // Configure ADCs for internal measurements
+    analogReadResolution(12); // Standardize to 12-bit (modern ESP32 cores handle attenuation natively)
+
+    // Setup external INA219 I2C Sensor
+    setupINA219();
     
     // Load saved values, or use defaults if not found
     webBaseSpeed = preferences.getUChar("motSpd", 200);
     screenSwitchTime = preferences.getUInt("scrTime", 5000);
     if (screenSwitchTime < 1000) screenSwitchTime = 5000; // Sanity check for rotation
+    
+    deepSleepTimeoutMs = preferences.getUInt("sleepTime", 900000);
+    if (deepSleepTimeoutMs < 600000) deepSleepTimeoutMs = 600000;
+    if (deepSleepTimeoutMs > 900000) deepSleepTimeoutMs = 900000;
     maxCurrentThreshold = preferences.getFloat("maxCurr", 2.5);
     minVoltageThreshold = preferences.getFloat("minVolt", 3.2);
     penetrationCount = preferences.getUInt("pCnt", 0);
@@ -313,7 +321,7 @@ void setup() {
     setupWeb(); 
 
     // Initial sensor read to seed the EMA filter
-    readMAX471(batteryVoltage, batteryCurrent);
+    readINA219(batteryVoltage, batteryCurrent);
 
     // Load report data from NVM
     patientName = preferences.getString("pName", "N/A");
@@ -339,7 +347,29 @@ void setup() {
     lastScreenSwitch = millis();
 }
 
+void enterDeepSleep() {
+    Serial.println("Entering Deep Sleep to save battery...");
+    setMotorSpeed(0);
+    
+    // Show visual message on OLED
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.drawString("ENTERING", tft.width()/2, tft.height()/2 - 15, 4);
+    tft.drawString("DEEP SLEEP", tft.width()/2, tft.height()/2 + 15, 4);
+    delay(2500); // Give user time to read
+    
+    tft.fillScreen(TFT_BLACK); // Clear before sleep
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); 
+    esp_deep_sleep_start();
+}
+
 void loop() {
+    // Check for Deep Sleep Timeout (15 minutes)
+    if (!systemEnabled && (millis() - lastInteractionTime > deepSleepTimeoutMs)) {
+        enterDeepSleep();
+    }
+
     server.handleClient(); // Process web requests on Core 1
 
     // Non-blocking timed loop. Executes approximately every 100ms on Core 1.
@@ -693,8 +723,8 @@ float readInternalBatteryVoltage() {
     digitalWrite(14, HIGH);
     delayMicroseconds(500); // 500us is plenty for the RC network to settle (100k/100k divider)
     
-    // 2. Read the raw ADC value from GPIO 34 (ADC1 Channel 6) characterized to mV
-    uint32_t mv = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_6), &adc_chars);
+    // 2. Read the ADC value from GPIO 34 (Internal ADC) and convert to calibrated mV natively
+    uint32_t mv = analogReadMilliVolts(34);
     
     // 3. Disable the voltage divider to prevent battery drain
     digitalWrite(14, LOW);
@@ -748,7 +778,7 @@ void calculateTelemetry() {
 
     bool isBatteryConnected = (batteryVoltage > 2.5);
     
-    // Compute battery percentage based on the actual battery terminal voltage (MAX471)
+    // Compute battery percentage based on the actual battery terminal voltage (INA219)
     if (isBatteryConnected) {
         float pc = (batteryVoltage - minVoltageThreshold) / (4.2f - minVoltageThreshold) * 100.0f;
         batteryPercent = (uint8_t)constrain(pc, 0, 100);
@@ -816,9 +846,9 @@ void handleGraftCounter() {
 
 void updateUI() {
     if (millis() - lastScreenSwitch > screenSwitchTime) {
-        int maxScreens = 4;
+        int maxScreens = 5; // 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics
         if (patientName != "N/A") {
-            maxScreens = 5; // Add patient screen if a patient is selected
+            maxScreens = 6; // Add patient screen (index 5) if a patient is selected
         }
         currentScreen = (currentScreen + 1) % maxScreens;
         lastScreenSwitch = millis();
@@ -827,9 +857,9 @@ void updateUI() {
     String displayIP = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
     uint8_t clients = WiFi.softAPgetStationNum();
     bool isBatteryConnected = (batteryVoltage > 2.5);
-    
-    refreshOLED(motorSpeed, batteryVoltage, batteryCurrent, safetyTripped, lowBatteryTripped, 
-                estimatedRPM, batteryPower, isBatteryConnected, batteryPercent, isCharging, 
+
+    refreshOLED(motorSpeed, batteryVoltage, batteryCurrent, safetyTripped, lowBatteryTripped,
+                estimatedRPM, batteryPower, isBatteryConnected, batteryPercent, isCharging,
                 currentScreen, displayIP, clients, debugMode, penetrationCount, wifiConnecting,
                 oscillatingMode, oscillationDurationCW, oscillationDurationCCW, patientName, patientAge, patientNationality);
 }

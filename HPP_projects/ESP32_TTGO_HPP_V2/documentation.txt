@@ -11,7 +11,7 @@ VERSION: 2.0 - REAL-TIME SENSOR FUSION & DUAL-CORE MULTITASKING
 The unified firmware binary dynamically supports two surgical pen variants:
 - VERSION 1: Premium Follicle Extractor
   * Actuator: JGA12-N20 Micro Metal Gear 6V DC Motor with Quadrature Encoder.
-  * Counter: Current-Speed Sensor Fusion (MAX471 spike + Encoder speed dip).
+  * Counter: Current-Speed Sensor Fusion (INA219 spike + Encoder speed dip).
   * Speed: Real physical RPM measured by high-speed hardware interrupts.
 - VERSION 2: Standard Follicle Extractor
   * Actuator: Standard DC Brushed Motor (No Encoder).
@@ -25,10 +25,10 @@ FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
 TFT Display      | -    | -                | Internally connected via SPI
 MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via DRV8833 OUT1
 MOTOR_IN2 (PWM)  | 12   | White (Motor -)  | Controls Speed/Dir via DRV8833 OUT2
-MAX471 VT (Volt) | 36   | -                | Analog Input (1V out = 5V in) - ADC1_CH0
-MAX471 AT (Amp)  | 32   | -                | Analog Input (1V out = 1A in) - ADC1_CH4
+INA219 SDA (Volt) | 36   | -                | Digital I2C Input (1V out = 5V in) - I2C_SDA
+INA219 SCL (Amp)  | 32   | -                | Digital I2C Input (1V out = 1A in) - I2C_SCL
 ADC Enable Pin   | 14   | -                | Enables Internal battery divider
-Internal VBAT    | 34   | -                | Onboard battery divider - ADC1_CH6
+Internal VBSCL    | 34   | -                | Onboard battery divider - ADC1_CH6
 Encoder Chan A   | 25   | Yellow           | Quadrature Channel A (Interrupt)
 Encoder Chan B   | 26   | Green            | Quadrature Channel B (State Pin)
 Encoder VCC      | 3V3  | Black            | Encoder Power (3.3V)
@@ -37,18 +37,18 @@ Encoder GND      | GND  | Blue             | Encoder Ground Reference
 3. HARDWARE CONNECTION FLOW:
 ----------------------------
 18650 LI-ION CELL:
-  Positive (+)   -> MAX471 SENSOR [RS+] AND TTGO VBAT connector pin
+  Positive (+)   -> INA219 SENSOR [VIN+] AND TTGO VBSCL connector pin
   Negative (-)   -> ESP32 GND (Common Ground)
 
-MAX471 SENSOR:
-  [RS+]          -> Battery Positive (+)
-  [RS-]          -> DRV8833 VCC
+INA219 SENSOR:
+  [VIN+]          -> Battery Positive (+)
+  [VIN-]          -> DRV8833 VCC
   [GND]          -> Common Ground
-  [VT]           -> ESP32 GPIO 36
-  [AT]           -> ESP32 GPIO 32
+  [SDA]           -> ESP32 GPIO 21
+  [SCL]           -> ESP32 GPIO 22
 
 DRV8833 MOTOR DRIVER:
-  [VCC]          -> MAX471 RS-
+  [VCC]          -> INA219 VIN-
   [GND]          -> Common Ground
   [IN1]          -> ESP32 GPIO 13
   [IN2]          -> ESP32 GPIO 12
@@ -59,7 +59,7 @@ DRV8833 MOTOR DRIVER:
 -----------------------------------------
 To ensure medical-grade counting reliability and instantaneous safety stops, the system distributes processes across dual cores via FreeRTOS:
 - CORE 0 (Background task, 100Hz high-priority loop):
-  * Sampling: Characterized MAX471 analog inputs.
+  * Sampling: Characterized INA219 analog inputs.
   * Safety: 10ms overcurrent trip (max 2.5A) and low battery cutoff.
   * Motion: Soft-start speed ramping and alternating FUE oscillation.
   * Counting: Current-Speed Sensor Fusion follicle counting.
@@ -71,14 +71,60 @@ To ensure medical-grade counting reliability and instantaneous safety stops, the
 5. CHARACTERIZED ANALOG SYSTEM (esp_adc_cal):
 ----------------------------------------------
 The system completely bypasses uncalibrated raw analog reads. It uses the ESP32 characterization API to read Vref calibration curves burned into the eFuse at the factory.
-- VT Analog (VT): `esp_adc_cal_raw_to_voltage` maps GPIO 36 raw readings directly to millivolts, divided by 1000 and scaled by 5.0.
-- AT Analog (AT): Characterizes GPIO 32 directly to millivolts, mapped linearly to Amperes (1000mV = 1.0A).
-- VBAT Analog: Gated by GPIO 14, characterizing GPIO 34 directly to millivolts, scaled by 2.0 (100k/100k onboard divider).
+- SDA Analog (SDA): `esp_adc_cal_raw_to_voltage` maps GPIO 21 raw readings directly to millivolts, divided by 1000 and scaled by 5.0.
+- SCL Analog (SCL): Characterizes GPIO 22 directly to millivolts, mapped linearly to Amperes (1000mV = 1.0A).
+- VBSCL Analog: Gated by GPIO 14, characterizing GPIO 34 directly to millivolts, scaled by 2.0 (100k/100k onboard divider).
 
-6. CORE SYSTEM FEATURES:
+6. CORE SYSTEM FESCLURES:
 -------------------------
 - On-Device Local Menu: Triggered by a dual long press of both buttons. Left scrolls, Right selects. Adjusts speed, mode, motor version, and resets counting on-device.
-- Differential Charging: Compares internal VBAT (GPIO 34) and external battery cell voltage (MAX471) to dynamically detect USB power, showing the charging icon (CHG) on the TFT screen.
+- Differential Charging: Compares internal VBSCL (GPIO 34) and external battery cell voltage (INA219) to dynamically detect USB power, showing the charging icon (CHG) on the TFT screen.
 - Web Diagnostics Scope: HTML5 Canvas-based rolling plot rendering real-time scrolling Voltage, Current, and RPM at 2Hz on the diagnostics panel without internet connectivity.
 - Proportional Web Logo: Dashboard rotating gear animation spins at a speed proportional to actual motor speed, stopping when the motor halts.
 ================================================================================
+
+================================================================================
+APPENDIX: SENSOR FUSION GRAFT COUNTING LOGIC
+================================================================================
+This diagram illustrates the real-time algorithm (executed at 100Hz) used to 
+detect skin penetration and accurately count grafts without false positives.
+
+It utilizes the digital I2C INA219 sensor (Current) and the N20 Encoder (RPM).
+
+[TIMELINE] ----> Time (Penetration Cycle) ---->
+
+                [1] IDLE / FREE AIR        [2] PENETRATION (SCALP)        [3] WITHDRAWAL
+                ---------------------      -----------------------        ---------------------
+         
+         (A) ++++++++++++++++++++++++++     ...      ...      ...      ++++++++++++++++++++++++++
+   Motor     |                        |    /   \    /   \    /   \    /                         |
+    RPM      |  (Calibrated Baseline) |___/     \__/     \__/     \__/ (Returns to Baseline)    |
+             |                        |   (RPM DIPS > 10% THRESHOLD)                            |
+         (0) +------------------------+---------------------------------------------------------+
+                                      |                              |
+                                      V     [ SENSOR FUSION ]        V
+                                      |                              |
+         (A) +------------------------+------------------------------+--------------------------+
+             |                        |                              |                          |
+             |                        |         _.--._         |                          |
+    INA219   |----[SPIKE THRESHOLD]---|-------.'------------'.-------|--------------------------|
+   Current   |                        |      /                \      |                          |
+             |----[EXIT / HYSTERESIS]-|-----/------------------\-----|--- (Count +1 Trigger)    |
+             |                        |    /                    \    |                          |
+             |  (Calibrated Baseline) |___/                      \___| (Returns to Baseline)    |
+         (0) ++++++++++++++++++++++++++                              ++++++++++++++++++++++++++
+                                          ^                          ^
+                                      [STATE: isPenetrating = TRUE]  |
+                                                                [STATE: isPenetrating = FALSE]
+                                                                [ACTION: penetrationCount++]
+
+LOGIC BREAKDOWN:
+1. IDLE: The system stabilizes and calibrates 'Baseline RPM' and 'Baseline Current'.
+2. PENETRATION: As the pen presses into the scalp, mechanical resistance increases.
+   - Condition A (Current Spike): The INA219 detects Amperage crossing the [SPIKE THRESHOLD].
+   - Condition B (RPM Dip): The Encoder detects RPM dipping >10% below [Baseline RPM].
+   - Fusion Result: Both conditions are met. The system locks 'isPenetrating' to TRUE.
+3. WITHDRAWAL: As the pen is removed, mechanical resistance drops.
+   - Condition C (Exit Hysteresis): Current drops below the lower [EXIT THRESHOLD].
+   - Result: The system unlocks 'isPenetrating', registers a single valid count (+1), 
+     and flashes the OLED display. The Hysteresis gap prevents double-counting from hand tremors.

@@ -1,3 +1,32 @@
+#ifndef GUIDELINE_H
+#define GUIDELINE_H
+
+#include <Arduino.h>
+
+const char GUIDELINE_HTML[] PROGMEM = R"=====(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Help Guide</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            background: #0f172a; 
+            color: #e2e8f0; 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            line-height: 1.4; 
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+        @media (max-width: 768px) {
+            body { padding: 10px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+<pre style="white-space: pre-wrap; word-wrap: break-word; font-family: inherit;">
 ================================================================================
                EL-BASEET HAIR PEN-V2 - WEB INTERFACE GUIDE
 ================================================================================
@@ -593,3 +622,9 @@ SPECIAL DISPLAY STSCLES:
 *   DEBUG MODE: If Engineering/Debug mode is enabled, a flashing yellow "DEBUG"
     tag will appear in the top-right corner as a constant reminder that safety
     systems are off.
+</pre>
+</body>
+</html>
+)=====";
+
+#endif

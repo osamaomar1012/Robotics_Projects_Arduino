@@ -6,7 +6,7 @@
 
 // Module Imports
 #include "drv8833.h"
-#include "max471.h"
+#include "ina219.h"
 #include "display.h"
 #include "web_server.h"
 #include <SPIFFS.h>
@@ -93,6 +93,8 @@ uint8_t currentScreen = 0;      // Re-enable Screen 0
 unsigned long lastScreenSwitch = 0;
 bool safetyTripped = false; // Flag to indicate a safety shutdown
 bool lowBatteryTripped = false; // Flag for low voltage protection
+unsigned long lastInteractionTime = 0;
+uint32_t deepSleepTimeoutMs = 900000; // Default 15 mins
 bool systemEnabled = false; // Default to OFF for safety on boot
 bool debugMode = false;     // Engineering mode to bypass safety stops
 bool oscillatingMode = false; // Master flag for oscillation mode
@@ -222,7 +224,7 @@ void telemetryTaskCode(void * pvParameters) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // 1. Read calibrated electrical telemetry (Current and Voltage)
-        readMAX471(batteryVoltage, batteryCurrent);
+        readINA219(batteryVoltage, batteryCurrent);
         
         // 2. Perform fast safety checks (Overcurrent and Low Voltage trips)
         handleSafetyChecks();
@@ -258,12 +260,16 @@ void setup() {
     preferences.begin("hpp_v1", false);
     
     // Initialize Characterized ADC Calibration
-    setupADCCalibration();
+    setupINA219();
     
     // Load saved values, or use defaults if not found
     webBaseSpeed = preferences.getUChar("motSpd", 200);
     screenSwitchTime = preferences.getUInt("scrTime", 5000);
     if (screenSwitchTime < 1000) screenSwitchTime = 5000; // Sanity check for rotation
+    
+    deepSleepTimeoutMs = preferences.getUInt("sleepTime", 900000);
+    if (deepSleepTimeoutMs < 600000) deepSleepTimeoutMs = 600000;
+    if (deepSleepTimeoutMs > 900000) deepSleepTimeoutMs = 900000;
     maxCurrentThreshold = preferences.getFloat("maxCurr", 2.5);
     minVoltageThreshold = preferences.getFloat("minVolt", 3.2);
     penetrationCount = preferences.getUInt("pCnt", 0);
@@ -277,9 +283,7 @@ void setup() {
     // Initialize Display
     setupOLED();
 
-    // Initialize TTGO internal battery ADC enable pin
-    pinMode(14, OUTPUT);
-    digitalWrite(14, LOW); // Disable to save power initially
+
 
     // Load and initialize Motor Version (1 = Version 1: Motor + Encoder, 2 = Version 2: Motor without Encoder)
     motorVersion = preferences.getUChar("motVer", 1); // Default to 1
@@ -322,7 +326,7 @@ void setup() {
     setupWeb(); 
 
     // Initial sensor read to seed the EMA filter
-    readMAX471(batteryVoltage, batteryCurrent);
+    readINA219(batteryVoltage, batteryCurrent);
 
     // Load report data from NVM
     patientName = preferences.getString("pName", "N/A");
@@ -348,7 +352,7 @@ void setup() {
     lastScreenSwitch = millis();
 }
 
-void loop() {
+void enterDeepSleep() { Serial.println('Entering Deep Sleep...'); setMotorSpeed(0); tft.fillScreen(0); esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); esp_deep_sleep_start(); }\n\nvoid loop() {\n    if (!systemEnabled && (millis() - lastInteractionTime > deepSleepTimeoutMs)) { enterDeepSleep(); }
     server.handleClient(); // Process web requests on Core 1
 
     // Non-blocking timed loop. Executes approximately every 100ms on Core 1.
@@ -818,9 +822,9 @@ void handleGraftCounter() {
 
 void updateUI() {
     if (millis() - lastScreenSwitch > screenSwitchTime) {
-        int maxScreens = 4;
+        int maxScreens = 5;
         if (patientName != "N/A") {
-            maxScreens = 5; // Add patient screen if a patient is selected
+            maxScreens = 6; // Add patient screen if a patient is selected
         }
         currentScreen = (currentScreen + 1) % maxScreens;
         lastScreenSwitch = millis();

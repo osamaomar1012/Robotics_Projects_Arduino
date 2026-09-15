@@ -21,6 +21,11 @@ extern uint8_t currentMenuItem;
 extern uint8_t webBaseSpeed;
 extern bool oscillatingMode;
 extern uint8_t motorVersion;
+extern float internalVoltage;
+extern float baselineCurrent;
+extern float penetrationOffset;
+extern float penetrationHysteresis;
+extern bool calibrationNeeded;
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft); // Create the Sprite object
@@ -63,21 +68,33 @@ void showWelcomeLogo() {
     if (!s_oledInitialized) return;
 
     spr.fillSprite(TFT_BLACK); // Use fillSprite to clear the buffer
-    spr.setTextColor(TFT_CYAN, TFT_BLACK);
+    
+    // Setup text alignment for easy centering
+    spr.setTextDatum(MC_DATUM); // Middle-Center datum
 
-    // Branding - Main Title
+    // 1. Branding - Main Title ("EL-BASEET")
+    // Color matching #38bdf8 (Light Blue / Cyan)
+    spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
     spr.setTextSize(3);
-    spr.setCursor(40, 25);
-    spr.println(F("EL-BASEET"));
+    spr.drawString("EL-BASEET", spr.width() / 2, 35, 1);
 
-    // Decorative line
+    // Decorative center line
     spr.drawFastHLine(20, 60, spr.width() - 40, TFT_DARKGREY);
 
-    // Subtitle
-    spr.setTextColor(TFT_WHITE, TFT_BLACK);
+    // 2. Subtitle ("HAIR PEN-V2")
+    // Color matching white/light cyan
+    spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
     spr.setTextSize(2);
-    spr.setCursor(25, 75);
-    spr.println(F("HAIR PEN V2.0"));
+    spr.drawString("HAIR PEN-V2", spr.width() / 2, 85, 1);
+
+    // 3. Sub-subtitle ("SURGICAL ASSISTANT")
+    // Color matching #94a3b8 (Light Grey)
+    spr.setTextColor(tft.color565(148, 163, 184), TFT_BLACK);
+    spr.setTextSize(1);
+    spr.drawString("SURGICAL ASSISTANT", spr.width() / 2, 110, 2);
+
+    // Reset datum for other functions
+    spr.setTextDatum(TL_DATUM);
 
     // Push the completed sprite to the screen at coordinate 0,0
     spr.pushSprite(0, 0);
@@ -154,6 +171,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     if (millis() - s_confirmationTimer < CONFIRMATION_DURATION) {
         spr.setTextDatum(MC_DATUM); // Middle-Center datum
         spr.setTextSize(2);
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Cyan matching brand
         spr.drawString(s_confirmationMessage, spr.width() / 2, spr.height() / 2);
         spr.pushSprite(0, 0); // Push the confirmation message to the screen
         return; // Skip normal screen drawing
@@ -214,7 +232,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     
     // Header Text
     spr.setCursor(5, 5);
-    spr.setTextColor(TFT_CYAN);
+    spr.setTextColor(tft.color565(56, 189, 248)); // Match Web Dashboard Cyan
     if (anyTrip) {
         // Flash the Alarm text if a trip is active
         if ((millis() / 500) % 2 == 0) spr.drawString("!!! ALARM !!!", 5, 5, 2);
@@ -223,13 +241,14 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     else if (screen == 1) spr.drawString("ENERGY STATUS", 5, 5, 2);
     else if (screen == 2) spr.drawString("NET STATUS", 5, 5, 2);
     else if (screen == 3) spr.drawString("OSCILLATION", 5, 5, 2);
+    else if (screen == 4) spr.drawString("DIAGNOSTICS", 5, 5, 2);
     else spr.drawString("PATIENT INFO", 5, 5, 2);
 
     // Debug Indicator (Inverted Tag) - Flashing every 500ms for high visibility
     if (debug && (millis() / 500) % 2 == 0) {
-        spr.fillRoundRect(spr.width() - 55, 3, 50, 16, 3, TFT_YELLOW);
-        spr.setTextColor(TFT_BLACK);
-        spr.drawString("DEBUG", spr.width() - 50, 5, 2);
+        spr.fillRoundRect(spr.width() - 75, 3, 40, 16, 3, TFT_YELLOW);
+        spr.setTextColor(TFT_BLACK, TFT_YELLOW);
+        spr.drawString("DBG", spr.width() - 70, 5, 2);
     }
     
     // Power Status
@@ -242,7 +261,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     if (anyTrip && !debug) {
         // --- ALARM OVERRIDE ---
         spr.setTextDatum(MC_DATUM);
-        spr.setTextColor(TFT_RED);
+        spr.setTextColor(TFT_RED, TFT_BLACK);
         spr.drawString(currentTrip ? "OVERCURRENT" : "LOW BATTERY", spr.width()/2, 50, 4);
         spr.drawString("SYSTEM HALTED", spr.width()/2, 85, 4);
         spr.pushSprite(0, 0); // Push the alarm message to the screen
@@ -251,67 +270,93 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
 
     if (screen == 0) {
         // --- SCREEN 0: DRIVE DASHBOARD ---
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
-        spr.drawString("SPD", 20, 40, 2);
-        spr.drawString("RPM", 20, 80, 2);
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(abs(speed)), 80, 40, 4);
-        spr.drawString(String(rpm), 80, 80, 4);
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("SET:", 10, 35, 2);
+        spr.drawString("RPM:", 10, 75, 2);
+        
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        spr.drawString(String(abs(speed)), 55, 35, 4);
+        
+        spr.setTextColor(TFT_GREEN, TFT_BLACK);
+        spr.drawString(String(rpm), 55, 75, 4);
 
         // FOOTER ZONE
         spr.drawFastHLine(0, 115, spr.width(), TFT_DARKGREY); 
-        if (pName != "N/A") {
-            spr.setTextColor(TFT_WHITE, TFT_BLACK);
-            spr.drawString(pName, 5, 120, 2);
-        } else {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("GRAFT: " + String(count), 5, 120, 2);
-        }
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        spr.drawString("GRAFTS: " + String(count), 5, 120, 2);
 
-        spr.setTextColor(speed >= 0 ? TFT_CYAN : TFT_ORANGE, TFT_BLACK); 
+        spr.setTextColor(speed >= 0 ? tft.color565(56, 189, 248) : TFT_ORANGE, TFT_BLACK); 
         spr.setTextDatum(TR_DATUM);
-        spr.drawString(speed >= 0 ? "FWD" : "REV", spr.width() - 5, 120, 2);
+        spr.drawString(speed >= 0 ? "FWD >>" : "<< REV", spr.width() - 5, 120, 2);
 
     } else if (screen == 1) {
         // --- SCREEN 1: ENERGY STATUS ---
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
-        spr.drawString("Voltage:", 20, 35, 2);
-        spr.drawString("Current:", 20, 65, 2);
-        spr.drawString("Power:",   20, 95, 2);
+        // Voltage Comparison
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Bat V:", 10, 30, 2);
+        spr.drawString("Int V:", 135, 30, 2);
+        
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(volt, 2) + " V", 120, 35, 2);
-        spr.drawString(String(amp, 2) + " A", 120, 65, 2);
-        spr.drawString(String(pwr, 1) + " W", 120, 95, 2);
+        spr.drawString(String(volt, 2) + "V", 65, 30, 2);
+        spr.drawString(String(internalVoltage, 2) + "V", 190, 30, 2);
+
+        // Current & Power
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Load:", 10, 60, 2);
+        spr.drawString("Pwr:", 135, 60, 2);
+
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        spr.drawString(String(amp, 2) + "A", 65, 60, 2);
+        spr.drawString(String(pwr, 1) + "W", 175, 60, 2);
+        
+        // Power State String
+        spr.setTextDatum(MC_DATUM);
+        if (isCharging) {
+            spr.setTextColor(TFT_GREEN, TFT_BLACK);
+            spr.drawString("CHARGING via USB", spr.width()/2, 95, 2);
+        } else {
+            spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+            spr.drawString("DISCHARGING (BAT)", spr.width()/2, 95, 2);
+        }
+        spr.setTextDatum(TL_DATUM);
 
         // Battery Bar
         uint8_t barWidth = spr.width() - 10;
-        spr.drawRect(5, 120, barWidth, 12, TFT_WHITE);
-        uint8_t fillWidth = map(batPct, 0, 100, 0, barWidth - 2);
+        spr.drawRect(5, 115, barWidth, 14, TFT_WHITE);
+        uint8_t fillWidth = map(batPct, 0, 100, 0, barWidth - 4);
         uint16_t barColor = (batPct < 20) ? TFT_RED : (batPct < 50) ? TFT_ORANGE : TFT_GREEN;
-        spr.fillRect(6, 121, fillWidth, 10, barColor);
+        spr.fillRect(7, 117, fillWidth, 10, barColor);
 
     } else if (screen == 2) {
         // --- SCREEN 2: NETWORK STATUS ---
         if (wifiConnecting) {
             spr.setTextDatum(MC_DATUM);
+            spr.setTextColor(TFT_YELLOW, TFT_BLACK);
             spr.drawString("WiFi Connecting...", spr.width()/2, spr.height()/2, 2);
             spr.pushSprite(0, 0); // Push the connecting message
             return;
         }
         
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
-        spr.drawString("Mode:", 20, 35, 2);
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Net:", 20, 35, 2);
         spr.drawString("IP:", 20, 65, 2);
         spr.drawString("Users:", 20, 95, 2);
 
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        String mode = (WiFi.status() == WL_CONNECTED) ? "STA" : "AP";
-        spr.drawString(mode, 120, 35, 2);
-        spr.drawString(ip, 120, 65, 2);
-        spr.drawString(String(clients), 120, 95, 2);
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        
+        // Truncate SSID if it's too long
+        String ssidName = (WiFi.status() == WL_CONNECTED) ? WiFi.SSID() : "AP Mode";
+        if (ssidName.length() > 12) {
+            ssidName = ssidName.substring(0, 10) + "..";
+        }
+        
+        spr.drawString(ssidName, 80, 35, 2);
+        spr.drawString(ip, 80, 65, 2);
+        spr.drawString(String(clients), 80, 95, 2);
+        
     } else if (screen == 3) {
         // --- SCREEN 3: OSCILLATION SETTINGS ---
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
         spr.drawString("Mode:", 20, 35, 2);
         spr.drawString("CW Time:", 20, 65, 2);
         spr.drawString("CCW Time:", 20, 95, 2);
@@ -319,24 +364,58 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         // Status
         if (oscMode) {
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("ACTIVE", 140, 35, 2);
+            spr.drawString("ACTIVE", 100, 35, 2);
         } else {
             spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-            spr.drawString("INACTIVE", 140, 35, 2);
+            spr.drawString("INACTIVE", 100, 35, 2);
         }
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(oscCW) + " ms", 140, 65, 2);
-        spr.drawString(String(oscCCW) + " ms", 140, 95, 2);
-    } else {
-        // --- SCREEN 4: PATIENT INFO ---
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
-        spr.drawString("Name:", 20, 35, 2);
-        spr.drawString("Age:", 20, 65, 2);
-        spr.drawString("Nat.:", 20, 95, 2);
+        spr.drawString(String(oscCW) + " ms", 100, 65, 2);
+        spr.drawString(String(oscCCW) + " ms", 100, 95, 2);
+        
+    } else if (screen == 4) {
+        // --- SCREEN 4: DIAGNOSTICS (NEW) ---
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Base I:", 10, 35, 2);
+        spr.drawString("Calib:", 125, 35, 2);
+        
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(pName, 120, 35, 2);
-        spr.drawString(pAge, 120, 65, 2);
-        spr.drawString(pNat, 120, 95, 2);
+        spr.drawString(String(baselineCurrent, 2) + "A", 70, 35, 2);
+        if (calibrationNeeded) {
+            spr.setTextColor(TFT_RED, TFT_BLACK);
+            spr.drawString("WAIT", 180, 35, 2);
+        } else {
+            spr.setTextColor(TFT_GREEN, TFT_BLACK);
+            spr.drawString("OK", 180, 35, 2);
+        }
+
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Spike:", 10, 65, 2);
+        spr.drawString("Exit:", 125, 65, 2);
+
+        spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+        spr.drawString(String(baselineCurrent + penetrationOffset, 2) + "A", 70, 65, 2);
+        spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 2) + "A", 180, 65, 2);
+        
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        spr.drawString("Sn: " + String(penetrationOffset, 2) + "A  Hy: " + String(penetrationHysteresis, 2) + "A", 10, 100, 2);
+        
+    } else {
+        // --- SCREEN 5: PATIENT INFO ---
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("Name:", 15, 35, 2);
+        spr.drawString("Age:", 15, 65, 2);
+        spr.drawString("Nat.:", 15, 95, 2);
+        
+        spr.setTextColor(TFT_WHITE, TFT_BLACK);
+        
+        // Truncate name if too long for screen
+        String shortName = pName;
+        if(shortName.length() > 14) shortName = shortName.substring(0, 14) + "..";
+        spr.drawString(shortName, 70, 35, 2);
+        
+        spr.drawString(pAge, 70, 65, 2);
+        spr.drawString(pNat, 70, 95, 2);
     }
 
     // Finally, push the completed sprite to the screen

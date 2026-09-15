@@ -11,18 +11,18 @@ FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
              | (Raw Battery Power)                                      |
              v                                                          v
   +----------------------+                                   +----------------------+
-  |    MAX471 SENSOR     |                                   |  ESP32 (TTGO BOARD)  |
+  |    INA219 SENSOR     |                                   |  ESP32 (TTGO BOARD)  |
   |                      |                                   |                      |
-  | [RS+] Source In  <---+                                   | [GND]   Common GND  |<--+
-  | [RS-] Load Out   ------------[ VCC Power In ]--------+   | [3V3]   3.3V Power  |--+|
-  |                      |                               |   | [GPIO 36] VT In     |<-+|
-  | [VT]  Voltage Out  ----------> [ ESP32 GPIO 36 ]     |   | [GPIO 32] AT In     |<-+|
-  | [AT]  Current Out  ----------> [ ESP32 GPIO 32 ]     |   | [GPIO 13] PWM IN1   |--+|
-  | [GND] Common GND   ---+                              |   | [GPIO 12] PWM IN2   |--+|
-  +----------------------+ |                             |   | [GPIO 25] Enc. A    |<-+|
-                           v                             |   | [GPIO 26] Enc. B    |<-+|
-                 (Common System Ground)                  |   | [GPIO 14] ADC EN    |--+|
-                           ^                             |   | [GPIO 34] VBAT In   |<-+|
+  | [VIN+] Source In <---+                                   | [GND]   Common GND  |<--+
+  | [VIN-] Load Out  ------------[ VCC Power In ]--------+   | [3V3]   3.3V Power  |--+|
+  |                      |                               |   | [GPIO 21] I2C SDA   |<-+|
+  | [SDA] I2C Data   ----------> [ ESP32 GPIO 21 ]       |   | [GPIO 22] I2C SCL   |<-+|
+  | [SCL] I2C Clock  ----------> [ ESP32 GPIO 22 ]       |   | [GPIO 13] PWM IN1   |--+|
+  | [VCC] 3.3V Power <---------- [ ESP32 3V3 ]           |   | [GPIO 12] PWM IN2   |--+|
+  | [GND] Common GND ---+                                |   | [GPIO 25] Enc. A    |<-+|
+  +----------------------+ |                             |   | [GPIO 26] Enc. B    |<-+|
+                           v                             |   | [GPIO 14] ADC EN    |--+|
+                 (Common System Ground)                  |   | [GPIO 34] VBAT In   |<-+|
                            |                             |   +---------|-----------+  ||
                            |                             |             v              ||
   +------------------------+                             |     [Gated Internal        ||
@@ -58,15 +58,16 @@ FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
 --------------------------------------------------------------------------------
 WIRING TABLE REFERENCE:
 --------------------------------------------------------------------------------
-MAX471 SENSOR:
-  RS+ (Positive Input)    -> 18650 Battery (+)
-  RS- (Positive Output)   -> DRV8833 VCC
-  VT  (Voltage Signal)    -> ESP32 GPIO 36 (Analog In)
-  AT  (Current Signal)    -> ESP32 GPIO 32 (Analog In)
+INA219 SENSOR:
+  VIN+ (Positive Input)   -> 18650 Battery (+)
+  VIN- (Positive Output)  -> DRV8833 VCC
+  SDA                     -> ESP32 GPIO 21 (I2C SDA)
+  SCL                     -> ESP32 GPIO 22 (I2C SCL)
+  VCC                     -> ESP32 3.3V
   GND                     -> ESP32 GND (Common)
 
 DRV8833 MOTOR DRIVER:
-  VCC                     -> MAX471 RS-
+  VCC                     -> INA219 VIN-
   GND                     -> ESP32 GND (Common)
   IN1  (Logic)            -> ESP32 GPIO 13 (PWM Channel 0)
   IN2  (Logic)            -> ESP32 GPIO 12 (PWM Channel 1)
@@ -106,25 +107,26 @@ JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
                                    +----------------------+
 
 18650 BATTERY:
-  Positive (+)            -> MAX471 RS+
+  Positive (+)            -> INA219 VIN+
   Negative (-)            -> ESP32 GND (Common)
 
 --------------------------------------------------------------------------------
 TECHNICAL NOTES:
 --------------------------------------------------------------------------------
-1. COMMON GROUND: The Battery (-), ESP32 GND, MAX471 GND, and DRV8833 GND must
+1. COMMON GROUND: The Battery (-), ESP32 GND, INA219 GND, and DRV8833 GND must
    all be connected together for the signal references to work correctly.
 
-2. VOLTAGE LIMITS: The MAX471 outputs a max of 3V when the source voltage is
-   15V (1/5 ratio). At 4.2V (fully charged 18650), VT will output ~0.84V, 
-   which is well within the ESP32's 3.3V ADC limit.
+2. I2C COMMUNICATION: The INA219 communicates digitally over I2C. Ensure SDA is
+   connected to GPIO 21 and SCL to GPIO 22. Pull-up resistors (e.g., 4.7kΩ) on 
+   the SDA/SCL lines may be required if they are not included on your INA219 breakout board.
 
-3. CURRENT LIMITS: The MAX471 outputs 1V per 1A. Ensure your motor does not 
-   exceed 3A peak, or you may exceed the ESP32's 3.3V ADC limit on the AT pin.
+3. CURRENT & VOLTAGE LIMITS: The INA219 default configuration supports up to 26V
+   bus voltage and ±3.2A continuous current. It handles the 18650 voltage (4.2V max) 
+   and the motor stall current safely without analog scaling issues.
 
-4. SIGNAL INTEGRITY: For the PWM lines (13 and 12), keep wires short to 
-   minimize electromagnetic interference (EMI) that could affect the 
-   analog readings on pins 36 and 32.
+4. SIGNAL INTEGRITY: Keep the I2C wires (SDA/SCL) relatively short and away from
+   the DRV8833 motor output wires to prevent motor PWM noise from corrupting 
+   the digital I2C sensor communications.
 
 5. DECOUPLING: If the display flickers or the ESP32 reboots when the motor
    starts, add a 100uF to 470uF electrolytic capacitor across the
@@ -138,11 +140,11 @@ TECHNICAL NOTES:
      to save power.
    - Dual-Sensor Comparison:
      * When USB is disconnected (battery power): Both the internal ADC (GPIO 34)
-       and external MAX471 (GPIO 36) read identical voltage levels (within 0.1V).
+       and external INA219 read identical voltage levels (within 0.1V).
      * When USB is connected: The onboard TP4054 lithium charger applies power
        to the board's VBAT line, causing the internal ADC (GPIO 34) to read
        significantly higher (typically > 4.25V, or > 0.12V above the actual 
-       battery pack voltage read by the external MAX471).
+       battery pack voltage read by the external INA219 over I2C).
      * Charging Status: The system dynamically compares these two readings
        to determine if the USB is plugged in and the battery is charging,
        triggering the "CHG" logo on the TFT display and detailed status on the web.

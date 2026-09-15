@@ -27,12 +27,12 @@ The system can be configured to support two hardware variants of the surgical pe
     It estimates RPM mathematically from voltage and uses a pure current-spike
     algorithm to count grafts.
 
-3. HARDWARE SPECIFICATIONS (V3.0)
+3. HARDWARE SPECIFICSCLIONS (V3.0)
 ---------------------------------
 *   MCU: LILYGO T-Display-S3 (ESP32-S3 Dual-Core LX7 at 240MHz)
 *   Display: 1.9" Diagonal HD color LCD with high-speed 8-bit parallel interface (ST7789V)
 *   Motor Driver: DRV8833 Dual H-Bridge (Supports up to 1.5A continuous)
-*   Sensor: MAX471 High-Side Current/Voltage Sensor (3.0A Max)
+*   Sensor: INA219 High-Side Current/Voltage Sensor (3.0A Max)
 *   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
 *   Actuator: JGA12-N20 Micro Metal Gear Motor (V1) or Standard DC Brushed Motor (V2)
 
@@ -46,21 +46,21 @@ Ensure you wire the JGA12-N20 motor according to these exact manufacturer specif
 *   Yellow Wire  (Encoder Chan A)->  LILYGO T-Display-S3 GPIO 10 (Interrupt input)
 *   Green Wire   (Encoder Chan B)->  LILYGO T-Display-S3 GPIO 11 (State/direction logic)
 
-MAX471 SENSOR WIRE SPECIFICATIONS:
-*   VT (Voltage analog out)      ->  LILYGO T-Display-S3 GPIO 1 (ADC1 Channel 0)
-*   AT (Current analog out)      ->  LILYGO T-Display-S3 GPIO 2 (ADC1 Channel 1)
+INA219 SENSOR WIRE SPECIFICSCLIONS:
+*   SDA (Voltage analog out)      ->  LILYGO T-Display-S3 GPIO 1 (ADC1 Channel 0)
+*   SCL (Current analog out)      ->  LILYGO T-Display-S3 GPIO 2 (ADC1 Channel 1)
 
 ONBOARD TELEMETRY PINS:
 *   Power Gate (Peripheral Power)->  LILYGO T-Display-S3 GPIO 15 (Must be kept HIGH!)
-*   Internal VBAT (ADC Input)    ->  LILYGO T-Display-S3 GPIO 4  (ADC1 Channel 3)
+*   Internal VBSCL (ADC Input)    ->  LILYGO T-Display-S3 GPIO 4  (ADC1 Channel 3)
 
-5. CORE SYSTEM FEATURES
+5. CORE SYSTEM FESCLURES
 -----------------------
 *   On-Device Local Menu Mode: Dual long-press of both buttons (BOOT on GPIO 0 and KEY on GPIO 14) for 1 second toggles 
     into a local menu. Scroll options with BOOT short-press. Select/adjust with KEY
     short-press. Options include Speed, Mode (Normal/Osc), Hardware (V1/V2), and Counter Reset.
-*   Dynamic USB Charging Detection: Real-time comparison between board-level VBAT 
-    (GPIO 4) and battery cell terminal voltage (MAX471). Displays glowing 'CHG' bolt 
+*   Dynamic USB Charging Detection: Real-time comparison between board-level VBSCL 
+    (GPIO 4) and battery cell terminal voltage (INA219). Displays glowing 'CHG' bolt 
     when USB charging power is connected.
 *   Current-Speed Sensor Fusion Counting (V1): Counts a follicle skin hit only when 
     current draw SPIKES above baseline AND actual motor RPM DIPS below a customizable percentage
@@ -79,7 +79,7 @@ ONBOARD TELEMETRY PINS:
 *   Low Battery Protection: Instantly halts motor if cell voltage < 3.2V.
 *   Engineering Debug Mode: Bypasses safety trips for bench-testing, showing full-screen warning.
 
-7. OPERATING INSTRUCTIONS
+7. OPERSCLING INSTRUCTIONS
 -------------------------
 
 A. INITIAL SETUP:
@@ -92,16 +92,16 @@ B. SELECT MOTOR VERSION:
    2. Set Motor Hardware Version: "Version 1" if utilizing the N20 encoder motor; "Version 2" if utilizing a standard motor.
    3. On Version 1, adjust "Speed Dip (%)" sensitivity as needed (Default 10%).
 
-C. CALIBRATION:
+C. CALIBRSCLION:
    Calibration ensures the system establishes correct air-load idle parameters.
    1. Hold the surgical pen in the air.
-   2. Select "RE-CALIBRATE" from the Web GUI or Local Menu.
+   2. Select "RE-CALIBRSCLE" from the Web GUI or Local Menu.
    3. The motor will spin for 2 seconds to establish baseline current and baseline RPM. Do NOT touch the skin during this time.
 
-D. INTEGRATED WEB STATUS ROTATION:
+D. INTEGRSCLED WEB STSCLUS ROTSCLION:
    Web dashboard spinning gear icon rotates at a speed proportional to active motor speed, coming to a complete halt when the motor is stopped.
 
-8. CONFIGURATION PARAMETERS (SETTINGS)
+8. CONFIGURSCLION PARAMETERS (SETTINGS)
 --------------------------------------
 *   Spike (A): The amount of current increase required to trigger a graft count.
 *   Hyst (A): The current drop below the spike required to reset the trigger.

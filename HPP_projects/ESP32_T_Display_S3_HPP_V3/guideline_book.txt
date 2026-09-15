@@ -2,7 +2,7 @@
                EL-BASEET HAIR PEN-V2 - WEB INTERFACE GUIDE
 ================================================================================
     Created by: Eng. Osama Omar
-    Version: 3.0 - LILYGO T-DISPLAY-S3 HARDWARE INTEGRATION
+    Version: 3.0 - LILYGO T-DISPLAY-S3 HARDWARE INTEGRSCLION
 ================================================================================
 
 This document is the official operator's guide for the EL-BASEET Hair Pen-V2 
@@ -34,10 +34,10 @@ ASCII DIAGRAM:
   +--------------------------------------------------+
   | [!!! SYSTEM HALTED: OVERLOAD !!!] (Alarm Only)   |
   +--------------------------------------------------+
-  |  CURRENT PATIENT: [ Osama Omar ]                 |
+  |  CURRENT PSCLIENT: [ Osama Omar ]                 |
   +--------------------------------------------------+
-  |  OPERATION CONTROL                               |
-  |  [ START OPERATION ]                             |
+  |  OPERSCLION CONTROL                               |
+  |  [ START OPERSCLION ]                             |
   +--------------------------------------------------+
   |  [ Patient Management ]                          |
   |  [ Settings           ]                          |
@@ -55,8 +55,8 @@ ELEMENT DESCRIPTIONS:
 *   System Alarm Box: Displays a blinking red warning if a safety limit (such
     as overcurrent or low battery) is tripped. Bypassed in Engineering Mode.
 *   Current Patient Card: Displays the active patient's name. If no patient is 
-    selected, the card is hidden and the [START OPERATION] button is disabled.
-*   [START OPERATION]: Clinicians click this to launch a new surgical session 
+    selected, the card is hidden and the [START OPERSCLION] button is disabled.
+*   [START OPERSCLION]: Clinicians click this to launch a new surgical session 
     and transition to the dedicated operative page.
 *   Patient Management: Links to the patient profile database.
 *   Settings: Links to the system configurations and thresholds page.
@@ -66,16 +66,16 @@ ELEMENT DESCRIPTIONS:
 
 ================================================================================
 
-2. SECTION 2: OPERATION PAGE
+2. SECTION 2: OPERSCLION PAGE
 ----------------------------
 This page appears automatically after you click "Start Operation".
 
 ASCII DIAGRAM:
 
   +--------------------------------------------------+
-  |                  IN OPERATION                    |
+  |                  IN OPERSCLION                    |
   +--------------------------------------------------+
-  |  [ PAUSE ]                    [ STOP OPERATION ] |
+  |  [ PAUSE ]                    [ STOP OPERSCLION ] |
   +--------------------------------------------------+
   |  GRAFT COUNTER:              [ 1450 ]            |
   |                  [ RESET COUNTER ]               |
@@ -84,29 +84,29 @@ ASCII DIAGRAM:
   |  <----[==================O========]----> (Slider)|
   |  [ ON ] [ OFF ] [ REVERSE ]                      |
   +--------------------------------------------------+
-  |  OPERATING MODE                                  |
-  |  [ NORMAL ]  [ OSCILLATE ]                       |
+  |  OPERSCLING MODE                                  |
+  |  [ NORMAL ]  [ OSCILLSCLE ]                       |
   +--------------------------------------------------+
 
 ELEMENT DESCRIPTIONS:
 
 *   [PAUSE] / [RESUME]: Pauses the timer and motor. Increases pause count.
-*   [STOP OPERATION]: Concludes surgery, saves the report, and redirects back to dashboard.
+*   [STOP OPERSCLION]: Concludes surgery, saves the report, and redirects back to dashboard.
 *   Graft Counter: Large green counter showing follicle count.
 *   Speed Slider: Drag to adjust PWM setpoint on-the-fly (0-255).
 *   Actual RPM: Shows real physically measured speed from the encoder (Version 1).
-*   Operating Mode: NORMAL (continuous) or OSCILLATE (alternating CW/CCW).
+*   Operating Mode: NORMAL (continuous) or OSCILLSCLE (alternating CW/CCW).
 
 ================================================================================
 
-3. SECTION 3: PATIENT MANAGEMENT
+3. SECTION 3: PSCLIENT MANAGEMENT
 --------------------------------
 Manage active patient sessions and archives.
 
 ASCII DIAGRAM:
 
   +--------------------------------------------------+
-  |                PATIENT MANAGEMENT                |
+  |                PSCLIENT MANAGEMENT                |
   +--------------------------------------------------+
   |  [ Add New Patient ]                             |
   +--------------------------------------------------+
@@ -127,39 +127,39 @@ ELEMENT DESCRIPTIONS:
 
 ================================================================================
 
-4. SECTION 4: ADD PATIENT
+4. SECTION 4: ADD PSCLIENT
 -------------------------
 Input clinical demographics before starting surgery.
 
 ASCII DIAGRAM:
 
   +--------------------------------------------------+
-  |                 ADD NEW PATIENT                  |
+  |                 ADD NEW PSCLIENT                  |
   +--------------------------------------------------+
   |  Patient Name: [ Enter Patient's Full Name ]     |
   |  Age: [ e.g. 35 ]      Nationality: [ Egyptian ] |
   |  Mobile: [ e.g. +201xxxxxxxxx ]                  |
   |  Doctor Name: [ Enter Doctor's Name ]            |
-  |  [ SAVE & SELECT PATIENT ]                       |
+  |  [ SAVE & SELECT PSCLIENT ]                       |
   +--------------------------------------------------+
 
 ================================================================================
 
-5. SECTION 5: CONFIGURATION & SETTINGS
+5. SECTION 5: CONFIGURSCLION & SETTINGS
 --------------------------------------
 Fine-tune device operational, hardware, and safety limits.
 
 ASCII DIAGRAM:
 
   +--------------------------------------------------+
-  |                  CONFIGURATION                   |
+  |                  CONFIGURSCLION                   |
   +--------------------------------------------------+
   | Screen Rotation (s): [ 5 ] [SET]                 |
   +--------------------------------------------------+
   | Oscillation Time (ms): [ 1000 ] [SAVE]           |
   +--------------------------------------------------+
   | Manual Oscillation (ms)                          |
-  | CW: [ 500 ] CCW: [ 500 ] [SAVE OSCILLATION]       |
+  | CW: [ 500 ] CCW: [ 500 ] [SAVE OSCILLSCLION]       |
   +--------------------------------------------------+
   | Safety Thresholds                                |
   | Max I (A): [ 2.5 ] Min V (V): [ 3.2 ] [SAVE]      |
@@ -175,7 +175,7 @@ ASCII DIAGRAM:
   +--------------------------------------------------+
   | DANGER ZONE: [ RESET TO FACTORY ]                |
   +--------------------------------------------------+
-  | Customization: [ EDIT REPORT TEMPLATE ]          |
+  | Customization: [ EDIT REPORT TEMPLSCLE ]          |
   +--------------------------------------------------+
 
 ELEMENT DESCRIPTIONS:
@@ -202,7 +202,7 @@ ASCII DIAGRAM:
   |                     READINGS                     |
   +--------------------------------------------------+
   |  Voltage Comparison                              |
-  |  MAX471 Sensor: [ 4.12V ]   TTGO Internal: [ 4.15V]|
+  |  INA219 Sensor: [ 4.12V ]   TTGO Internal: [ 4.15V]|
   |  Power State:   [ DISCHARGING (Battery) ]        |
   +--------------------------------------------------+
   |  Live Telemetry Plot                             |
@@ -211,14 +211,14 @@ ASCII DIAGRAM:
   +--------------------------------------------------+
   |  CURRENT: [ 0.25A ]       POWER: [ 1.03W ]       |
   +--------------------------------------------------+
-  |  BATTERY: [ 95% ]         ACTUAL RPM: [ 1980 ]   |
+  |  BSCLTERY: [ 95% ]         ACTUAL RPM: [ 1980 ]   |
   +--------------------------------------------------+
-  |  BASELINE I: [ 0.21A ]    [ RE-CALIBRATE ]       |
+  |  BASELINE I: [ 0.21A ]    [ RE-CALIBRSCLE ]       |
   +--------------------------------------------------+
 
 ELEMENT DESCRIPTIONS:
 
-*   Voltage Comparison: Displays both the external battery terminal voltage (MAX471)
+*   Voltage Comparison: Displays both the external battery terminal voltage (INA219)
     and the internal charging bus voltage. Automatically detects USB connection.
 *   Live Telemetry Plot: Dynamic HTML5 Canvas wave displaying sensor history at 2Hz.
 *   Re-calibrate: Starts a 2-second air-load calibration of baseline current/RPM.
@@ -240,21 +240,21 @@ ASCII DIAGRAM:
   |                                                  |
   +--------------------------------------------------+
 
-CLINICAL REPORT ASCII VISUALIZATION:
+CLINICAL REPORT ASCII VISUALIZSCLION:
 
   +------------------------------------------------------------+
-  |                 SURGICAL OPERATIVE REPORT                  |
+  |                 SURGICAL OPERSCLIVE REPORT                  |
   |           EL-BASEET HAIR PEN-V2 - MEDICAL SYSTEM           |
   +------------------------------------------------------------+
-  | PATIENT DEMOGRAPHICS:                                      |
+  | PSCLIENT DEMOGRAPHICS:                                      |
   | Patient Name: Osama Omar         Age/Gender: 32 / Male     |
   | Mobile No: +2010xxxxxxxx         Nationality: Egyptian     |
   | Date of Procedure: 2026-09-04    Lead Surgeon: Dr. Ahmad   |
   +------------------------------------------------------------+
-  | PROCEDURE OPERATIVE METRICS:                               |
+  | PROCEDURE OPERSCLIVE METRICS:                               |
   | +--------------------------------------------------------+ |
   | |  TOTAL GRAFTS: 1450                                    | |
-  | |  OPERATIVE DURATION: 1h 45m 12s                        | |
+  | |  OPERSCLIVE DURSCLION: 1h 45m 12s                        | |
   | |  TOTAL PAUSES: 3                                       | |
   | +--------------------------------------------------------+ |
   | Average Operational Flow Rate:  828 grafts / hour        | |
@@ -288,14 +288,14 @@ ASCII DIAGRAM:
 
 ================================================================================
 
-9. SECTION 9: TEMPLATE EDITOR
+9. SECTION 9: TEMPLSCLE EDITOR
 -----------------------------
 Modify the HTML template and custom logos.
 
 ASCII DIAGRAM:
 
   +--------------------------------------------------+
-  |                 TEMPLATE EDITOR                  |
+  |                 TEMPLSCLE EDITOR                  |
   +--------------------------------------------------+
   |  Report Logo:                                    |
   |  [ Choose File ] [ UPLOAD LOGO ]                 |
@@ -304,7 +304,7 @@ ASCII DIAGRAM:
   |  +--------------------------------------------+  |
   |  | <!DOCTYPE html> <html> <head> ...          |  |
   |  +--------------------------------------------+  |
-  |  [ SAVE TEMPLATE ]                               |
+  |  [ SAVE TEMPLSCLE ]                               |
   +--------------------------------------------------+
 
 ================================================================================
@@ -326,7 +326,7 @@ screen and two physical buttons near the USB-C port of the **LILYGO T-Display-S3
 --- [ LOCAL MENU MODE CONTROLS ] ---
 When Local Menu Mode is active, normal motor control buttons are suspended:
 
-MENU MODE ASCII VISUALIZATION:
+MENU MODE ASCII VISUALIZSCLION:
 
   +----------------------------------+
   | SYSTEM MENU             [|||||]  |
@@ -345,7 +345,7 @@ MENU MODE ASCII VISUALIZATION:
 *   **KEY BUTTON (Select/Adjust Value)**
     -   **Short Press:** Triggers or modifies the highlighted option:
         *   Speed: Increments motor speed by 10 (wraps 50 -> 250 -> 50).
-        *   Mode: Toggles between standard forward rotation (NORMAL) and CCW/CW OSCILLATE.
+        *   Mode: Toggles between standard forward rotation (NORMAL) and CCW/CW OSCILLSCLE.
         *   Hardw: Toggles between Version 1 (Motor + Encoder) and Version 2 (Motor without Encoder).
         *   Reset Grafts: Resets the follicle count to 0 in persistent memory.
         *   Exit Menu: Exits Menu Mode.
@@ -362,7 +362,7 @@ MENU MODE ASCII VISUALIZATION:
         - If the operation is IDLE, this will **Start** a new operation.
         - If the operation is PAUSED, this will **Resume** the operation.
 
---- [ OSCILLATION MODE CONTROLS ] ---
+--- [ OSCILLSCLION MODE CONTROLS ] ---
 
 *   **BOOT BUTTON (Left/Top Button)**
     -   **Short Press:** Increase Counter-Clockwise (CCW) rotation time by 500ms.
@@ -374,11 +374,11 @@ MENU MODE ASCII VISUALIZATION:
 
 --------------------------------------------------------------------------------
 
-SPECIAL DISPLAY STATES:
+SPECIAL DISPLAY STSCLES:
 
 *   ALARM SCREEN: If a safety system is triggered (Overcurrent or Low Battery),
     the screen will be overridden with a large red warning like "OVERCURRENT" 
-    or "LOW BATTERY".
+    or "LOW BSCLTERY".
 *   GRAFT FLASH SCREEN: When a graft is counted, the screen flashes white with the
     new count in a large font for 200ms before returning.
 *   DEBUG MODE: If Engineering/Debug mode is enabled, a flashing yellow "DEBUG"

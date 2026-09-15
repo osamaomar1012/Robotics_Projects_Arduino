@@ -36,6 +36,8 @@ extern String initialScanResultsJson;
 extern OperationState operationState;
 extern String patientMobile;
 extern uint32_t screenSwitchTime;
+extern uint32_t deepSleepTimeoutMs;
+extern unsigned long lastInteractionTime;
 extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, debugMode, isPenetrating, wifiConnecting, oscillatingMode, isCharging, inMenuMode;
   extern String patientName, patientAge, patientNationality, doctorName;
 extern unsigned long operationTimeAccumulator, lastTimeCapture; extern uint32_t pauseCount;
@@ -67,6 +69,9 @@ const char WIFI_HTML[] PROGMEM = R"=====(
         .btn-green { background: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); width: 100%; margin-top: 15px; }
         .btn:active { transform: scale(0.95); }
         .link-footer { margin-top: 25px; display: block; color: #94a3b8; text-decoration: none; font-size: 0.85em; }
+        .status-box { padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9em; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); }
+        .status-connected { background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+        .status-disconnected { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
     </style>
 </head>
 <body>
@@ -75,6 +80,9 @@ const char WIFI_HTML[] PROGMEM = R"=====(
             <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
             <h2>WIFI SETUP</h2>
         </div>
+
+        ##WIFI_STATUS_BOX##
+
         <div class="card">
             <button class="btn btn-blue" onclick="scan()">SCAN NETWORKS</button>
             <button class="btn btn-blue" style="background: #7f8c8d;" onclick="manual()">HIDDEN SSID</button>
@@ -176,7 +184,7 @@ const char READINGS_HTML[] PROGMEM = R"=====(
         <div class="card" style="flex-direction: column; padding: 18px 25px; gap: 8px;">
             <div style="font-weight: bold; font-size: 0.8em; color: #38bdf8; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; width:100%; text-align: left;">Voltage Comparison</div>
             <div class="compare-row">
-                <span class="compare-label">MAX471 Sensor (Battery Pack)</span>
+                <span class="compare-label">INA219 Sensor (Battery Pack)</span>
                 <span id="v" class="value">0.00V</span>
             </div>
             <div class="compare-row">
@@ -318,99 +326,271 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
     <title>EL-BASEET - Config</title>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; margin: 0; min-height: 100vh; }
-        .container { max-width: 400px; margin: auto; padding: 20px; }
+        .container { max-width: 400px; margin: auto; padding: 20px; box-sizing: border-box; }
         .header-wrap { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 25px; }
         .logo-svg { width: 32px; height: 32px; fill: #38bdf8; animation: spin 5s linear infinite; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4)); }
         @keyframes spin { 100% { transform: rotate(360deg); } }
         h2 { font-weight: 300; letter-spacing: 2px; color: #38bdf8; text-transform: uppercase; margin: 0; }
-        .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 20px; margin: 15px 0; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.05); }
+        .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 20px; margin: 15px 0; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.05); text-align: center; }
         .btn { padding: 12px 20px; font-size: 13px; margin: 5px; cursor: pointer; border: none; border-radius: 8px; color: white; width: 90%; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
-        input { width: 70px; background: #334155; color: white; border: 1px solid #475569; padding: 8px; text-align: center; border-radius: 6px; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        input, select { background: #334155; color: white; border: 1px solid #475569; padding: 8px; text-align: center; border-radius: 6px; outline: none; }
+        input[type="number"] { width: 70px; }
+        select { width: 90%; padding: 10px; border-radius: 8px; cursor: pointer; }
         .label { font-size: 0.7em; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1.5px; }
         .flex-row { display: flex; justify-content: space-around; align-items: center; margin: 10px 0; }
         .debug-on { background: #f59e0b !important; color: #000 !important; }
         .link-footer { margin-top: 25px; display: block; color: #38bdf8; text-decoration: none; font-size: 0.85em; }
+        .link-footer:hover { text-decoration: underline; }
+
+        /* Submenu Navigation Styles */
+        .menu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            padding: 16px 20px;
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 12px 0;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-align: left;
+            box-sizing: border-box;
+        }
+        .menu-btn:hover {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: #38bdf8;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
+        }
+        .menu-btn-danger {
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+        .menu-btn-danger:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+        }
+        .menu-icon {
+            font-size: 18px;
+            margin-right: 15px;
+            display: inline-block;
+            width: 24px;
+            text-align: center;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #38bdf8;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-bottom: 15px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+        }
+        .back-btn:hover {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.2);
+        }
+        .submenu-view {
+            display: none;
+            flex-direction: column;
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-wrap">
-            <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-            <h2>CONFIG</h2>
+            <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95C4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+            <h2 id="configHeader">SETTINGS</h2>
         </div>
-        <div class="card">
-            <div class="label">Screen Rotation (s)</div>
-            <input type="number" id="st" min="1" max="60" style="margin-right: 10px;">
-            <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('scrTime', document.getElementById('st').value)">SET</button>
+
+        <!-- Main Settings Menu -->
+        <div id="mainMenu">
+            <button class="menu-btn" onclick="showSubMenu('screenConfig', 'Screen Config')">
+                <span class="menu-icon">🖥️</span> Power & Screen
+            </button>
+            <button class="menu-btn" onclick="showSubMenu('motorConfig', 'Motor Config')">
+                <span class="menu-icon">⚙️</span> Motor Config
+            </button>
+            <button class="menu-btn" onclick="showSubMenu('safetyConfig', 'Safety Config')">
+                <span class="menu-icon">🛡️</span> Safety Config
+            </button>
+            <button class="menu-btn" onclick="showSubMenu('motorHardConfig', 'Motor Hardware')">
+                <span class="menu-icon">🔌</span> Motor Hardware Version
+            </button>
+            <button class="menu-btn" onclick="showSubMenu('reportConfig', 'Report Config')">
+                <span class="menu-icon">📄</span> Report Config
+            </button>
+            <button class="menu-btn" onclick="showSubMenu('securityConfig', 'Security Config')">
+                <span class="menu-icon">🔒</span> Security Config
+            </button>
+            <button class="menu-btn menu-btn-danger" onclick="showSubMenu('factoryResetConfig', 'Factory Reset')">
+                <span class="menu-icon">⚠️</span> Reset to Factory Settings
+            </button>
+            <a href="/" class="link-footer">&larr; BACK TO DASHBOARD</a>
         </div>
-        <div class="card">
-            <div class="label">Oscillation Time (ms)</div>
-            <input type="number" id="ot" min="500" max="10000" step="500" style="margin-right: 10px;">
-            <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('oscDur', document.getElementById('ot').value)">SAVE</button>
-        </div>
-        <div class="card">
-            <div class="label">Manual Oscillation Durations (ms)</div>
-            <div class="flex-row">
-                <div><div class="label">CW</div><input type="number" id="oscCW" step="100"></div>
-                <div><div class="label">CCW</div><input type="number" id="oscCCW" step="100"></div>
+
+        <!-- Screen & Power Config Submenu -->
+        <div id="screenConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Screen Rotation (s)</div>
+                <input type="number" id="st" min="1" max="60" style="margin-right: 10px;">
+                <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('scrTime', document.getElementById('st').value)">SET</button>
             </div>
-            <button class="btn" style="background: #7c3aed;" onclick="saveOsc()">SAVE OSCILLATION</button>
-        </div>
-        <div class="card">
-            <div class="label">Safety Thresholds</div>
-            <div class="flex-row">
-                <div><div class="label">Max I (A)</div><input type="number" id="mc" step="0.1"></div>
-                <div><div class="label">Min V (V)</div><input type="number" id="mv" step="0.1"></div>
+            <div class="card">
+                <div class="label">Auto-Sleep Timeout (mins)</div>
+                <input type="number" id="slp" min="10" max="15" style="margin-right: 10px;">
+                <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('sleepTime', document.getElementById('slp').value)">SET</button>
+                <div style="font-size: 0.75em; color: #94a3b8; margin-top: 5px;">Range: 10 to 15 minutes.</div>
             </div>
-            <button class="btn" style="background: #ea580c;" onclick="saveSafety()">SAVE SAFETY</button>
         </div>
-        <div class="card">
-            <div class="label">Motor Hardware Version</div>
-            <select id="motVer" onchange="set('motVer', this.value)" style="width: 90%; background: #334155; color: white; border: 1px solid #475569; padding: 10px; border-radius: 8px; outline: none; margin-bottom: 5px;">
-                <option value="1">Version 1: Motor + Encoder</option>
-                <option value="2">Version 2: Motor without Encoder</option>
-            </select>
-        </div>
-        <div class="card">
-            <div class="label">Graft Sensitivity</div>
-            <div class="flex-row">
-                <div><div class="label">Spike (A)</div><input type="number" id="po" step="0.01"></div>
-                <div><div class="label">Hyst (A)</div><input type="number" id="ph" step="0.01"></div>
+
+        <!-- Motor Config Submenu -->
+        <div id="motorConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Oscillation Time (ms)</div>
+                <input type="number" id="ot" min="500" max="10000" step="500" style="margin-right: 10px;">
+                <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('oscDur', document.getElementById('ot').value)">SAVE</button>
             </div>
-            <div id="speedDipRow" class="flex-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
-                <div><div class="label">Speed Dip (%)</div><input type="number" id="sd" step="0.5" min="1" max="50"></div>
+            <div class="card">
+                <div class="label">Manual Oscillation Durations (ms)</div>
+                <div class="flex-row">
+                    <div><div class="label">CW</div><input type="number" id="oscCW" step="100"></div>
+                    <div><div class="label">CCW</div><input type="number" id="oscCCW" step="100"></div>
+                </div>
+                <button class="btn" style="background: #7c3aed;" onclick="saveOsc()">SAVE OSCILLATION</button>
             </div>
-            <button class="btn" style="background: #0284c7; margin-top: 10px;" onclick="savePen()">SAVE SENSITIVITY</button>
+            <div class="card">
+                <div class="label">Graft Sensitivity</div>
+                <div class="flex-row">
+                    <div><div class="label">Spike (A)</div><input type="number" id="po" step="0.01"></div>
+                    <div><div class="label">Hyst (A)</div><input type="number" id="ph" step="0.01"></div>
+                </div>
+                <div id="speedDipRow" class="flex-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+                    <div><div class="label">Speed Dip (%)</div><input type="number" id="sd" step="0.5" min="1" max="50"></div>
+                </div>
+                <button class="btn" style="background: #0284c7; margin-top: 10px;" onclick="savePen()">SAVE SENSITIVITY</button>
+            </div>
         </div>
-        <div class="card">
-            <div class="label">Engineering Mode</div>
-            <button id="db" class="btn" style="background: #475569;" onclick="set('debug', '0')">TOGGLE DEBUG</button>
+
+        <!-- Safety Config Submenu -->
+        <div id="safetyConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Safety Thresholds</div>
+                <div class="flex-row">
+                    <div><div class="label">Max I (A)</div><input type="number" id="mc" step="0.1"></div>
+                    <div><div class="label">Min V (V)</div><input type="number" id="mv" step="0.1"></div>
+                </div>
+                <button class="btn" style="background: #ea580c;" onclick="saveSafety()">SAVE SAFETY</button>
+            </div>
+            <div class="card">
+                <div class="label">Engineering Mode</div>
+                <button id="db" class="btn" style="background: #475569;" onclick="set('debug', '0')">TOGGLE DEBUG</button>
+            </div>
         </div>
-        <div class="card" style="border: 1px dashed #ef4444;">
-            <div class="label" style="color: #ef4444;">DANGER ZONE</div>
-            <button class="btn" style="background: #ef4444;" onclick="if(confirm('Reset all settings and WiFi to defaults?')) set('resetDefaults', '1')">RESET TO FACTORY</button>
+
+        <!-- Motor Hardware Version Submenu -->
+        <div id="motorHardConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Motor Hardware Version</div>
+                <select id="motVer" onchange="set('motVer', this.value)">
+                    <option value="1">Version 1: Motor + Encoder</option>
+                    <option value="2">Version 2: Motor without Encoder</option>
+                </select>
+            </div>
         </div>
-        <div class="card">
-            <div class="label">Customization</div>
-            <a href="/editor" class="btn" style="text-decoration:none; background: #334155;">EDIT REPORT TEMPLATE</a>
+
+        <!-- Security Config Submenu -->
+        <div id="securityConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Pen WiFi Password (AP Mode)</div>
+                <input type="text" id="apPass" minlength="8" placeholder="Enter new password" style="width: 80%; margin-bottom: 10px;">
+                <button class="btn" style="background: #0ea5e9;" onclick="saveApPass()">SAVE & RESTART</button>
+                <div style="font-size: 0.75em; color: #94a3b8; margin-top: 10px;">Min 8 chars. Device will restart.</div>
+            </div>
         </div>
-        <a href="/" class="link-footer">&larr; BACK TO DASHBOARD</a>
+
+        <!-- Report Config Submenu -->
+        <div id="reportConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card">
+                <div class="label">Report HTML Template</div>
+                <a href="/editor" class="btn" style="text-decoration:none; background: #334155; display: inline-block; width: 85%;">EDIT REPORT TEMPLATE</a>
+            </div>
+        </div>
+
+        <!-- Reset to Factory Settings Submenu -->
+        <div id="factoryResetConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Settings</button>
+            <div class="card" style="border: 1px dashed #ef4444;">
+                <div class="label" style="color: #ef4444;">DANGER ZONE</div>
+                <div style="font-size: 0.85em; color: #94a3b8; margin: 15px 0; line-height: 1.4;">Warning: This will clear all stored configurations and wireless profiles, reverting the system to original settings.</div>
+                <button class="btn" style="background: #ef4444;" onclick="if(confirm('Reset all settings and WiFi to defaults?')) set('resetDefaults', '1')">RESET TO FACTORY</button>
+            </div>
+        </div>
     </div>
     <script>
         function set(c, v) { fetch(`/control?cmd=${c}&val=${v}`); }
         function saveSafety() { set('maxCurr', document.getElementById('mc').value); set('minVolt', document.getElementById('mv').value); }
         function saveOsc() { set('oscDurCw', document.getElementById('oscCW').value); set('oscDurCcw', document.getElementById('oscCCW').value); }
+        function saveApPass() { 
+            let p = document.getElementById('apPass').value; 
+            if(p.length < 8) { alert('Password must be at least 8 characters'); return; }
+            if(confirm('Change pen WiFi password to: ' + p + ' and restart?')) {
+                set('apPass', encodeURIComponent(p));
+            }
+        }
         function savePen() { 
             set('penOff', document.getElementById('po').value); 
             set('penHyst', document.getElementById('ph').value); 
             set('spdDip', document.getElementById('sd').value); 
+        }
+
+        function showSubMenu(id, title) {
+            document.getElementById('mainMenu').style.display = 'none';
+            document.querySelectorAll('.submenu-view').forEach(el => el.style.display = 'none');
+            document.getElementById(id).style.display = 'flex';
+            document.getElementById('configHeader').innerText = title.toUpperCase();
+        }
+        function goBack() {
+            document.querySelectorAll('.submenu-view').forEach(el => el.style.display = 'none');
+            document.getElementById('mainMenu').style.display = 'block';
+            document.getElementById('configHeader').innerText = 'SETTINGS';
         }
         
         setInterval(() => {
             fetch('/telemetry').then(r => r.json()).then(data => {
                 if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
                     document.getElementById('st').value = data.st;
-                    document.getElementById('oscCW').value = data.oscDurCw; document.getElementById('oscCCW').value = data.oscDurCcw;
+                    document.getElementById('slp').value = data.slp;
+                    document.getElementById('oscCW').value = data.oscDurCw;
+                    document.getElementById('oscCCW').value = data.oscDurCcw;
                     document.getElementById('ot').value = data.oscDur;
                     document.getElementById('mc').value = data.mc;
                     document.getElementById('mv').value = data.mv;
@@ -420,7 +600,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
                     document.getElementById('motVer').value = data.motVer;
                 }
                 
-                // Show or hide the Speed Dip (%) input field dynamically depending on the selected motor version
                 document.getElementById('speedDipRow').style.display = (data.motVer === 1) ? 'flex' : 'none';
 
                 let b = document.getElementById('db');
@@ -498,6 +677,7 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Post-Operative Surgical Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -545,6 +725,7 @@ const char REPORT_HTML[] PROGMEM = R"=====(
             .grid-item { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .metrics-card { background: #0f172a !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .metrics-card .metric-item .value { color: #38bdf8 !important; }
+            .remarks-section { page-break-before: always; }
         }
         
         @page { size: A4; margin: 20mm; }
@@ -560,13 +741,13 @@ const char REPORT_HTML[] PROGMEM = R"=====(
     </style>
 </head>
 <body>
-    <button class="print-btn" onclick="window.print()">🖨️ Print Clinical Report</button>
+    <button class="print-btn" onclick="window.print()">&#128438; Print Clinical Report</button>
     
     <div class="report-container">
     <div class="report-header">
         <div class="header-left">
             <h1>Surgical Operative Report</h1>
-            <p>EL-BASEET HAIR PEN-V3 • Medical Integration</p>
+            <p>EL-BASEET HAIR PEN-V2 &bull; Medical Integration</p>
         </div>
         <div class="header-right">
             <img src="/img/logo.jpg" alt="Clinic Logo">
@@ -629,7 +810,7 @@ const char REPORT_HTML[] PROGMEM = R"=====(
         </div>
 
         <div class="footer">
-            <p>This post-operative surgical sheet was automatically generated by the EL-BASEET HAIR PEN-V3 integration system.</p>
+            <p>This post-operative surgical sheet was automatically generated by the EL-BASEET Hair Pen-V2 integration system.</p>
             <p>&copy; 2026 EL-BASEET Industrial & Medical Solutions</p>
         </div>
     </div>
@@ -766,49 +947,154 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>EL-BASEET - New Patient</title>
+    <title>EL-BASEET - Patient Management</title>
     <style>
-        body { font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; margin: 0; }
-        .container { max-width: 500px; margin: auto; padding: 20px; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; margin: 0; min-height: 100vh; }
+        .container { max-width: 400px; margin: auto; padding: 20px; box-sizing: border-box; }
         .header-wrap { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 25px; }
-        .logo-svg { width: 32px; height: 32px; fill: #38bdf8; }
-        h2 { font-weight: 300; letter-spacing: 2px; color: #38bdf8; text-transform: uppercase; margin: 0; }
-        .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 20px; margin: 15px 0; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.05); }
-        .btn { padding: 12px 24px; font-size: 14px; margin: 6px; cursor: pointer; border: none; border-radius: 12px; color: white; transition: all 0.3s; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-        .btn-on { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); }
+        .logo-svg { width: 32px; height: 32px; fill: #38bdf8; animation: spin 5s linear infinite; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4)); }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        h2 { font-weight: 300; letter-spacing: 2px; color: #38bdf8; text-transform: uppercase; margin: 0; font-size: 1.3em;}
+        .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 20px; margin: 15px 0; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.05); text-align: center; }
+        .btn { padding: 12px 20px; font-size: 13px; margin: 5px; cursor: pointer; border: none; border-radius: 8px; color: white; width: 90%; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
         .btn-red { background: #ef4444; }
-        input, select { width: 90%; padding: 12px; margin: 5px 0 15px 0; background: #334155; color: white; border: 1px solid #475569; border-radius: 8px; outline: none; }
-        .label { font-size: 0.75em; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1.5px; text-align: left; padding-left: 5%;}
-        .flex-row { display: flex; justify-content: space-between; gap: 10px; }
-        .link-footer { margin-top: 25px; display: block; color: #64748b; text-decoration: none; font-size: 0.85em; }
+        input, select { background: #334155; color: white; border: 1px solid #475569; padding: 12px; text-align: center; border-radius: 8px; outline: none; margin-bottom: 15px; width: 90%; box-sizing: border-box;}
+        .label { font-size: 0.75em; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1.5px; }
+        .link-footer { margin-top: 25px; display: block; color: #38bdf8; text-decoration: none; font-size: 0.85em; }
+        .link-footer:hover { text-decoration: underline; }
+
+        /* Submenu Navigation Styles */
+        .menu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            padding: 16px 20px;
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 12px 0;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-align: left;
+            box-sizing: border-box;
+        }
+        .menu-btn:hover {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: #38bdf8;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
+        }
+        .menu-btn-danger {
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+        .menu-btn-danger:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+        }
+        .menu-icon {
+            font-size: 18px;
+            margin-right: 15px;
+            display: inline-block;
+            width: 24px;
+            text-align: center;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #38bdf8;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-bottom: 15px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+        }
+        .back-btn:hover {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.2);
+        }
+        .submenu-view {
+            display: none;
+            flex-direction: column;
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-wrap">
             <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-            <h2>PATIENT MANAGEMENT</h2>
+            <h2 id="patientHeader">PATIENT MANAGEMENT</h2>
         </div>
 
-        <a href="/addpatient" class="btn btn-on" style="text-decoration:none; width: 90%; display: block; margin: 15px auto;">Add New Patient</a>
-
-        <div class="card" style="margin-top: 30px;">
-            <h3>Select Existing Patient</h3>
-            <div class="label">Choose from previously saved patients</div>
-            <select id="patientListSelect" name="patientListSelect">##PATIENT_LIST##</select>
-            <button class="btn" style="background:#0ea5e9; width: 90%;" onclick="selectPatient()">Select This Patient</button>
+        <!-- Main Patient Menu -->
+        <div id="mainMenu">
+            <a href="/addpatient" class="menu-btn" style="text-decoration: none;">
+                <span class="menu-icon">➕</span> Add New Patient
+            </a>
+            <button class="menu-btn" onclick="showSubMenu('selectPatientConfig', 'Select Patient')">
+                <span class="menu-icon">📂</span> Select Existing Patient
+            </button>
+            <button class="menu-btn menu-btn-danger" onclick="showSubMenu('removePatientConfig', 'Remove Patient')">
+                <span class="menu-icon">🗑️</span> Remove Patient
+            </button>
+            <a href="/" class="link-footer">&larr; BACK TO DASHBOARD</a>
         </div>
 
-        <div class="card" style="border: 1px dashed #ef4444;">
-            <h3 style="color: #f87171;">Remove Patient</h3>
-            <div class="label">This will permanently delete a patient and all their reports.</div>
-            <select id="patientListRemove" name="patientListRemove">##PATIENT_LIST##</select>
-            <button class="btn btn-red" style="width: 90%;" onclick="removePatient()">Permanently Remove Patient</button>
+        <!-- Select Patient Submenu -->
+        <div id="selectPatientConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Patient Menu</button>
+            <div class="card">
+                <div class="label">Choose from previously saved patients</div>
+                <select id="patientListSelect" name="patientListSelect">##PATIENT_LIST##</select>
+                <button class="btn" style="background:#0ea5e9;" onclick="selectPatient()">Select This Patient</button>
+            </div>
         </div>
 
-        <a href="/" class="link-footer">&larr; Cancel and Return to Dashboard</a>
+        <!-- Remove Patient Submenu -->
+        <div id="removePatientConfig" class="submenu-view">
+            <button class="back-btn" onclick="goBack()">&larr; Back to Patient Menu</button>
+            <div class="card" style="border: 1px dashed #ef4444;">
+                <div class="label" style="color: #ef4444;">Remove Patient</div>
+                <div style="font-size: 0.85em; color: #94a3b8; margin: 10px 0 15px 0;">This will permanently delete a patient and all their reports.</div>
+                <select id="patientListRemove" name="patientListRemove">##PATIENT_LIST##</select>
+                <button class="btn btn-red" onclick="removePatient()">Permanently Remove</button>
+            </div>
+        </div>
+
     </div>
     <script>
+        function showSubMenu(id, title) {
+            document.getElementById('mainMenu').style.display = 'none';
+            document.querySelectorAll('.submenu-view').forEach(el => el.style.display = 'none');
+            document.getElementById(id).style.display = 'flex';
+            document.getElementById('patientHeader').innerText = title.toUpperCase();
+        }
+        function goBack() {
+            document.querySelectorAll('.submenu-view').forEach(el => el.style.display = 'none');
+            document.getElementById('mainMenu').style.display = 'block';
+            document.getElementById('patientHeader').innerText = 'PATIENT MANAGEMENT';
+        }
+
         function selectPatient() {
             let patientFile = document.getElementById('patientListSelect').value;
             if (!patientFile) return;
@@ -923,7 +1209,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>EL-BASEET HAIR PEN-V3</title>
+    <title>EL-BASEET HAIR PEN-V2</title>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; margin: 0; min-height: 100vh; }
         .container { max-width: 420px; margin: auto; padding: 25px; }
@@ -954,7 +1240,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
     <div class="container">
         <div class="header-wrap">
             <svg class="logo-svg" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-            <h2>EL-BASEET<br><span style="font-size: 0.65em; letter-spacing: 4px; color: #38bdf8;">HAIR PEN-V3</span><br><span style="font-size: 0.35em; letter-spacing: 2px; color: #94a3b8;">SURGICAL ASSISTANT</span></h2>
+            <h2>EL-BASEET<br><span style="font-size: 0.65em; letter-spacing: 4px; color: #38bdf8;">HAIR PEN-V2</span><br><span style="font-size: 0.35em; letter-spacing: 2px; color: #94a3b8;">SURGICAL ASSISTANT</span></h2>
         </div>
         <div id="alarmBox" class="card alarm">SYSTEM HALTED: OVERLOAD</div>
         <div id="patientCard" class="card" style="display:none;">
@@ -1130,7 +1416,25 @@ String archiveProcessor(const String& var) {
     return String();
 }
 
-void handleWifi() { server.send(200, "text/html", WIFI_HTML); }
+void handleWifi() {
+    String pageContent = WIFI_HTML;
+    String statusHtml = "";
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        String currentSSID = WiFi.SSID();
+        String currentIP = WiFi.localIP().toString();
+        statusHtml = "<div class=\"status-box status-connected\">"
+                     "<span>🟢 Connected to: <b>" + currentSSID + "</b><br><span style=\"font-size:0.8em;font-weight:normal;color:#94a3b8;\">IP: " + currentIP + "</span></span>"
+                     "</div>";
+    } else {
+        statusHtml = "<div class=\"status-box status-disconnected\">"
+                     "<span>🔴 Not connected to any network (AP Mode)</span>"
+                     "</div>";
+    }
+    
+    pageContent.replace("##WIFI_STATUS_BOX##", statusHtml);
+    server.send(200, "text/html", pageContent);
+}
 
 void handleInitialScanResults() {
     server.send(200, "application/json", initialScanResultsJson);
@@ -1219,6 +1523,7 @@ void handleTelemetry() {
 }
 
 void handleControl() {
+    lastInteractionTime = millis();
     String cmd = server.arg("cmd");
     String val = server.arg("val");
 
@@ -1304,10 +1609,26 @@ void handleControl() {
         setMotorVersion(ver);
         displayWebConfirmation(ver == 1 ? "Premium N20" : "Std Motor");
     }
+        if (cmd == "sleepTime") {
+        uint32_t mins = val.toInt();
+        if (mins >= 10 && mins <= 15) {
+            deepSleepTimeoutMs = mins * 60000;
+            preferences.putUInt("sleepTime", deepSleepTimeoutMs);
+            displayWebConfirmation("Sleep Time Saved");
+        }
+    }
     if (cmd == "scrTime") {
         screenSwitchTime = val.toInt() * 1000;
         preferences.putUInt("scrTime", screenSwitchTime); // Save to NVM
         displayWebConfirmation("Rotate: " + val + "s");
+    }
+    if (cmd == "apPass") {
+        if (val.length() >= 8) {
+            preferences.putString("ap_pass", val);
+            displayWebConfirmation("AP Pass Changed!");
+            delay(1500);
+            ESP.restart();
+        }
     }
     if (cmd == "debug") {
         debugMode = !debugMode;
@@ -1339,6 +1660,7 @@ void handleControl() {
         preferences.putBool("debug", false);
         preferences.putString("sta_ssid", ssid_sta);
         preferences.putString("sta_pass", pass_sta);
+        preferences.remove("ap_pass"); // Reset AP password to default
 
         displayWebConfirmation("Factory Reset...");
         delay(2000);
@@ -1721,27 +2043,12 @@ void handleUpload() {
     }
 }
 
+#include "guideline.h"
+
 void handleHelp() {
-    fs::File file = SPIFFS.open("/guideline_book.txt", "r");
-    if (!file) {
-        server.send(404, "text/plain", "Help file not found.");
-        return;
-    }
-
-    // Stream the response to avoid loading the entire large file into memory.
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    server.send(200, "text/html", ""); // Send headers first
-
-    // Send the HTML head and styling
-    server.sendContent("<html><head><title>Help Guide</title><style>body{background:#0f172a; color: #e2e8f0; font-family: 'Courier New', monospace; padding: 20px; line-height: 1.4;}</style></head><body><pre>");
-
-    // Stream the file content directly to the client
-    while(file.available()){
-      server.sendContent(file.readStringUntil('\n') + "\n");
-    }
-
-    server.sendContent("</pre></body></html>");
-    file.close();
+    // Serve the guideline book directly from PROGMEM flash memory
+    // This avoids missing file issues if the SPIFFS data upload step was skipped
+    server.send_P(200, "text/html", GUIDELINE_HTML);
 }
 
 void createDefaultTemplate() {
@@ -1753,7 +2060,8 @@ void createDefaultTemplate() {
 
 void setupWeb() {
     // 1. Setup AP Mode
-    WiFi.softAP(ssid_ap, pass_ap);
+    String current_ap_pass = preferences.getString("ap_pass", pass_ap);
+    WiFi.softAP(ssid_ap, current_ap_pass.c_str());
     Serial.println("AP Mode Active: " + WiFi.softAPIP().toString());
 
     // 2. Setup STA Mode using saved credentials or defaults
@@ -1782,9 +2090,9 @@ void setupWeb() {
         if (f) {
             String content = f.readString();
             f.close();
-            if (content.indexOf("Times New Roman") != -1) {
+            if (content.indexOf("Times New Roman") != -1 || content.indexOf("charset=") == -1 || content.indexOf("page-break-before") == -1) {
                 createDefaultTemplate();
-                Serial.println("Upgraded legacy report template in SPIFFS to modern clinical template.");
+                Serial.println("Upgraded legacy report template in SPIFFS to modern clinical template with UTF-8.");
             }
         }
     } else {
@@ -1794,6 +2102,10 @@ void setupWeb() {
     // 3. Server Routes
     server.on("/", handleRoot);
     server.on("/config", handleConfig);
+    
+    // Serve static files for editor
+    server.serveStatic("/template", SPIFFS, "/template");
+    server.serveStatic("/img", SPIFFS, "/img");
     server.on("/operation", handleOperation);
     server.on("/readings", handleReadings);
     server.on("/selectpatient", handleSelectPatient);
