@@ -23,8 +23,8 @@ The unified firmware binary dynamically supports two surgical pen variants:
 FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
 -----------------|------|------------------|------------------------------------
 TFT Display      | -    | -                | Internally connected via SPI
-MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via DRV8833 OUT1
-MOTOR_IN2 (PWM)  | 12   | White (Motor -)  | Controls Speed/Dir via DRV8833 OUT2
+MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via MAX1508 OUT1
+MOTOR_IN2 (PWM)  | 27   | White (Motor -)  | Controls Speed/Dir via MAX1508 OUT2
 INA219 SDA (Volt) | 36   | -                | Digital I2C Input (1V out = 5V in) - I2C_SDA
 INA219 SCL (Amp)  | 32   | -                | Digital I2C Input (1V out = 1A in) - I2C_SCL
 ADC Enable Pin   | 14   | -                | Enables Internal battery divider
@@ -42,16 +42,16 @@ Encoder GND      | GND  | Blue             | Encoder Ground Reference
 
 INA219 SENSOR:
   [VIN+]          -> Battery Positive (+)
-  [VIN-]          -> DRV8833 VCC
+  [VIN-]          -> MAX1508 (MX1508) VCC
   [GND]          -> Common Ground
   [SDA]           -> ESP32 GPIO 21
   [SCL]           -> ESP32 GPIO 22
 
-DRV8833 MOTOR DRIVER:
+MAX1508 (MX1508) MOTOR DRIVER:
   [VCC]          -> INA219 VIN-
   [GND]          -> Common Ground
   [IN1]          -> ESP32 GPIO 13
-  [IN2]          -> ESP32 GPIO 12
+  [IN2]          -> ESP32 GPIO 27
   [OUT1]         -> JGA12-N20 Motor Terminal (+) [Red Wire]
   [OUT2]         -> JGA12-N20 Motor Terminal (-) [White Wire]
 

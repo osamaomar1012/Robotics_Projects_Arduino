@@ -30,7 +30,7 @@ The system can be configured to support two hardware variants of the surgical pe
 3. HARDWARE SPECIFICSCLIONS
 ---------------------------
 *   MCU: LILYGO TTGO T-Display ESP32 (Integrated 1.14" ST7789 TFT screen)
-*   Motor Driver: DRV8833 Dual H-Bridge (Supports up to 1.5A continuous)
+*   Motor Driver: MAX1508 / MX1508 Dual H-Bridge (Supports up to 1.5A continuous / 2A Peak)
 *   Sensor: INA219 High-Side Current/Voltage Sensor (3.0A Max)
 *   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
 *   Actuator: JGA12-N20 Micro Metal Gear Motor (V1) or Standard DC Brushed Motor (V2)
@@ -38,8 +38,8 @@ The system can be configured to support two hardware variants of the surgical pe
 4. WIRING AND WIRE COLORS (JGA12-N20 ENCODER MOTOR)
 ---------------------------------------------------
 Ensure you wire the JGA12-N20 motor according to these exact manufacturer specifications:
-*   Red Wire     (Motor +)       ->  DRV8833 OUT1
-*   White Wire   (Motor -)       ->  DRV8833 OUT2
+*   Red Wire     (Motor +)       ->  MAX1508 (MX1508) OUT1
+*   White Wire   (Motor -)       ->  MAX1508 (MX1508) OUT2
 *   Black Wire   (Encoder VCC)   ->  ESP32 3V3 (Stable 3.3V Power)
 *   Blue Wire    (Encoder GND)   ->  ESP32 GND (Common Ground)
 *   Yellow Wire  (Encoder Chan A)->  ESP32 GPIO 25 (High-speed interrupt input)

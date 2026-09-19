@@ -5,7 +5,7 @@
  */
 
 // Module Imports
-#include "drv8833.h"
+#include "max1508.h"
 #include "ina219.h"
 #include "display.h"
 #include "web_server.h"
@@ -19,8 +19,8 @@
 #define BTN_RIGHT 35
 
 // JGA12-N20 Encoder Definitions & Wire Colors
-// - Red Wire    -> Motor Positive (+)  -> DRV8833 OUT1
-// - White Wire  -> Motor Negative (-)  -> DRV8833 OUT2
+// - Red Wire    -> Motor Positive (+)  -> MAX1508 (MX1508) OUT1
+// - White Wire  -> Motor Negative (-)  -> MAX1508 (MX1508) OUT2
 // - Black Wire  -> Encoder VCC (3.3V)  -> ESP32 3V3
 // - Blue Wire   -> Encoder GND         -> ESP32 GND
 // - Yellow Wire -> Encoder Channel A   -> ESP32 GPIO 25 (Interrupt pin)
@@ -294,7 +294,7 @@ void setup() {
     }
 
     // Initialize the motor driver pins
-    setupDRV8833();
+    setupMAX1508();
 
     // Setup button pins with internal pull-ups
     pinMode(BTN_LEFT, INPUT_PULLUP);
