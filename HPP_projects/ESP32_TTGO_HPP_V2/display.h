@@ -14,6 +14,22 @@
 #include <TFT_eSPI.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <TJpg_Decoder.h>
+
+// Forward declaration for TJpg_Decoder rendering callback
+bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);
+
+// Animation Frame Counts
+#define WELCOME_FRAMES 70
+#define START_OP_FRAMES 68
+#define STOP_OP_FRAMES 60
+#define REPORT_FRAMES 25
+
+// Animation Function Prototypes
+void showWelcomeAnimation();
+void showStartOperationAnimation();
+void showStopOperationAnimation();
+void showReportAnimation();
 
 // Extern global references for local menu system
 extern bool inMenuMode;
@@ -26,9 +42,14 @@ extern float baselineCurrent;
 extern float penetrationOffset;
 extern float penetrationHysteresis;
 extern bool calibrationNeeded;
+extern bool systemEnabled;
+extern unsigned long lastInteractionTime;
+extern uint8_t ledBrightness;
+extern void setLEDBrightness(uint8_t brightness);
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft); // Create the Sprite object
+TFT_eSprite clockSpr = TFT_eSprite(&tft); // Dedicated sprite for flicker-free clock panel
 
 // --- CONFIRMATION MESSAGE STATE ---
 static String s_confirmationMessage = "";
@@ -58,6 +79,11 @@ void setupOLED() {
     // All drawing will be done on this sprite, then pushed to the screen
     spr.setColorDepth(16);
     spr.createSprite(tft.width(), tft.height());
+
+    // Create dedicated sprite for the right-hand clock panel (105x135)
+    clockSpr.setColorDepth(16);
+    clockSpr.createSprite(105, 135);
+
     s_oledInitialized = true;
 }
 
@@ -117,13 +143,20 @@ void drawBatteryIcon(TFT_eSprite &spr, bool isConnected, bool isCharging, uint8_
     int16_t y = 4;                // Top-right corner Y position
 
     if (isCharging) {
-        // Draw charging bolt icon
-        spr.setTextColor(TFT_GREEN);
-        spr.drawString("CHG", x - 30, y, 2);
-        spr.fillTriangle(x + 13, y + 1, x + 7, y + 7, x + 10, y + 7, TFT_YELLOW);
-        spr.fillTriangle(x + 10, y + 7, x + 16, y + 1, x + 13, y + 1, TFT_YELLOW);
-        spr.fillTriangle(x + 7, y + 6, x + 13, y + 12, x + 10, y + 12, TFT_YELLOW);
-        spr.fillTriangle(x + 10, y + 12, x + 4, y + 6, x + 7, y + 6, TFT_YELLOW);
+        // Draw battery casing and terminal (consistent with connected battery icon size)
+        spr.drawRect(x, y, 22, 12, TFT_WHITE); // Body
+        spr.fillRect(x + 22, y + 3, 3, 6, TFT_WHITE); // Terminal
+
+        // Dynamic battery filling animation: Cycles from 20% to 100% every 1.5 seconds (300ms per step)
+        uint8_t animPct = 20 + ((millis() / 300) % 5) * 20;
+        int fillWidth = map(animPct, 0, 100, 0, 18);
+        if (fillWidth > 0) {
+            spr.fillRect(x + 2, y + 2, fillWidth, 8, TFT_GREEN);
+        }
+
+        // Draw CHG text in front of battery
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        spr.drawString("CHG", x - 32, y, 2);
     } else if (isConnected) {
         // Draw static battery level icon
         spr.setTextColor(TFT_WHITE);
@@ -189,6 +222,8 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     // --- LOCAL MENU MODE OVERRIDE ---
     if (inMenuMode) {
         spr.fillSprite(TFT_BLACK);
+        spr.setTextSize(1); // Reset text size from screensaver to prevent giant menu text
+        spr.setTextDatum(TL_DATUM); // Reset text datum to Top-Left for proper menu alignment
         
         // Draw Header
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
@@ -197,14 +232,15 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
 
         const char* labels[] = {
             "1. Speed: ",
-            "2. Mode: ",
-            "3. Hardw: ",
-            "4. Reset Grafts",
-            "5. Exit Menu"
+            "2. LED Light: ",
+            "3. Mode: ",
+            "4. Hardw: ",
+            "5. Reset Grafts",
+            "6. Exit Menu"
         };
 
-        for (uint8_t i = 0; i < 5; i++) {
-            int yPos = 30 + (i * 18);
+        for (uint8_t i = 0; i < 6; i++) {
+            int yPos = 26 + (i * 17);
             
             // Draw background highlight bar for the highlighted item
             if (i == currentMenuItem) {
@@ -215,14 +251,101 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
             }
 
             String text = labels[i];
-            if (i == 0) text += String(webBaseSpeed);
-            else if (i == 1) text += (oscillatingMode ? "OSC" : "NORMAL");
-            else if (i == 2) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
+            if (i == 0) {
+                int percentSpeed = round((float)webBaseSpeed * 100.0f / 255.0f);
+                text += String(percentSpeed) + "%";
+            }
+            else if (i == 1) {
+                if (ledBrightness == 0) text += "OFF";
+                else {
+                    int percentLed = round((float)ledBrightness * 100.0f / 255.0f);
+                    text += String(percentLed) + "%";
+                }
+            }
+            else if (i == 2) text += (oscillatingMode ? "OSC" : "NORMAL");
+            else if (i == 3) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
 
             spr.drawString(text, 10, yPos, 2);
         }
         spr.pushSprite(0, 0);
         return; // Skip drawing normal telemetry screens
+    }
+
+    // Check if we should activate the elegant Animated screensaver.
+    // Activated if the system is IDLE (no motor speed, system disabled, not in menu, and no interaction for > 15 seconds)
+    bool inScreensaver = (!inMenuMode && !systemEnabled && abs(speed) <= 10 && (millis() - lastInteractionTime > 15000));
+    static bool s_wasScreensaver = false;
+    
+    if (inScreensaver) {
+        // Clear screen ONCE upon transition into screensaver mode (prevents flicker)
+        if (!s_wasScreensaver) {
+            tft.fillScreen(TFT_BLACK);
+            s_wasScreensaver = true;
+        }
+        
+        // 1. Play the animation frame from the hair frame set (0, 0 to 134, 134)
+        static uint8_t s_savFrame = 0;
+        s_savFrame = (s_savFrame + 1) % STOP_OP_FRAMES;
+        
+        TJpgDec.setJpgScale(1);
+        TJpgDec.setSwapBytes(true);
+        TJpgDec.setCallback(tft_output);
+        TJpgDec.drawFsJpg(0, 0, "/hair_" + String(s_savFrame) + ".jpg");
+        
+        // 2. Render real-time clock and status into dedicated double-buffered sprite (Width: 105, Height: 135)
+        clockSpr.fillSprite(TFT_BLACK);
+        
+        clockSpr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Brand Cyan
+        clockSpr.setTextDatum(TC_DATUM);
+        clockSpr.drawString("EL-BASEET", 52, 12, 2);
+        
+        clockSpr.drawFastHLine(5, 30, 95, TFT_DARKGREY);
+        
+        struct tm timeinfo;
+        bool hasTime = getLocalTime(&timeinfo, 5); // Short non-blocking timeout
+        
+        if (hasTime && timeinfo.tm_year >= 120) {
+            // Live Digital Clock
+            char timeStr[6]; // "HH:MM"
+            strftime(timeStr, sizeof(timeStr), "%H:%M", &timeinfo);
+            clockSpr.setTextColor(TFT_WHITE, TFT_BLACK);
+            clockSpr.drawString(timeStr, 52, 38, 4);
+            
+            // Blinking Seconds
+            char secStr[4]; // ":SS"
+            strftime(secStr, sizeof(secStr), ":%S", &timeinfo);
+            clockSpr.setTextColor(tft.color565(14, 165, 233), TFT_BLACK);
+            clockSpr.drawString(secStr, 52, 64, 2);
+            
+            // Abbreviated Date
+            char dateStr[20]; // "Sep 19, 2026"
+            strftime(dateStr, sizeof(dateStr), "%b %d, %Y", &timeinfo);
+            clockSpr.setTextColor(TFT_YELLOW, TFT_BLACK);
+            clockSpr.drawString(dateStr, 52, 84, 1);
+        } else {
+            // Standby Status
+            clockSpr.setTextColor(TFT_GREEN, TFT_BLACK);
+            if ((millis() / 500) % 2 == 0) {
+                clockSpr.drawString("● READY", 52, 50, 2);
+            } else {
+                clockSpr.drawString("  READY", 52, 50, 2);
+            }
+            
+            clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            clockSpr.drawString("SYS ACTIVE", 52, 72, 1);
+        }
+        
+        clockSpr.drawFastHLine(5, 104, 95, TFT_DARKGREY);
+        
+        // Onscreen live battery telemetry
+        clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        clockSpr.drawString("BAT: " + String(batPct) + "%", 52, 112, 1);
+        
+        // Push the entire right panel in ONE atomic DMA transfer (zero flicker)
+        clockSpr.pushSprite(135, 0);
+        return;
+    } else {
+        s_wasScreensaver = false;
     }
 
     // --- SHARED HEADER ZONE ---
@@ -243,6 +366,13 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     else if (screen == 3) spr.drawString("OSCILLATION", 5, 5, 2);
     else if (screen == 4) spr.drawString("DIAGNOSTICS", 5, 5, 2);
     else spr.drawString("PATIENT INFO", 5, 5, 2);
+
+    // Surgical LED Illumination Status Indicator in Header
+    if (ledBrightness > 0) {
+        uint8_t ledPct = round((float)ledBrightness * 100.0f / 255.0f);
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        spr.drawString("LED:" + String(ledPct) + "%", 118, 5, 2);
+    }
 
     // Debug Indicator (Inverted Tag) - Flashing every 500ms for high visibility
     if (debug && (millis() / 500) % 2 == 0) {
@@ -269,153 +399,249 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     }
 
     if (screen == 0) {
-        // --- SCREEN 0: DRIVE DASHBOARD ---
+        // --- SCREEN 0: DRIVE DASHBOARD (REDESIGNED WITH ROTATING MOTOR ANIMATION) ---
+        // Left Column: Telemetry readings
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("SET:", 10, 35, 2);
-        spr.drawString("RPM:", 10, 75, 2);
+        spr.drawString("SET SPEED:", 10, 32, 2);
+        spr.drawString("ACT RPM:", 10, 68, 2);
         
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString(String(abs(speed)), 55, 35, 4);
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Cyberpunk Cyan
+        int percentSpeed = round((float)abs(speed) * 100.0f / 255.0f);
+        spr.drawString(String(percentSpeed) + "%", 90, 30, 4);
         
-        spr.setTextColor(TFT_GREEN, TFT_BLACK);
-        spr.drawString(String(rpm), 55, 75, 4);
+        spr.setTextColor(TFT_GREEN, TFT_BLACK); // Neon Green
+        spr.drawString(String(rpm), 90, 66, 4);
+        
+        // Motor Status Text
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        spr.drawString("STATUS:", 10, 95, 2);
+        if (speed != 0) {
+            spr.setTextColor(TFT_GREEN, TFT_BLACK);
+            spr.drawString(oscillatingMode ? "OSCILLATING" : "RUNNING", 70, 95, 2);
+        } else {
+            spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+            spr.drawString("STANDBY", 70, 95, 2);
+        }
+
+        // Beautiful Spinning Motor Animation (Right Column)
+        int cx = 190;
+        int cy = 68;
+        int r = 24;
+        
+        // Casing and outer ring
+        spr.drawCircle(cx, cy, r + 4, TFT_DARKGREY);
+        spr.drawCircle(cx, cy, r, tft.color565(71, 85, 105)); // Slate Gray Casing
+        
+        // Spinning Angle Calculation proportional to motor speed
+        static float currentAngle = 0;
+        if (speed != 0) {
+            currentAngle += (speed / 255.0f) * 12.0f; // Multiplier defines spinning speed
+            if (currentAngle >= 360.0f) currentAngle -= 360.0f;
+            if (currentAngle < 0.0f) currentAngle += 360.0f;
+        }
+        
+        // Draw 4 spokes
+        for (int i = 0; i < 4; i++) {
+            float rad = (currentAngle + (i * 90)) * DEG_TO_RAD;
+            int x_end = cx + (int)(r * cos(rad));
+            int y_end = cy + (int)(r * sin(rad));
+            uint16_t spokeColor = (speed != 0) ? tft.color565(34, 197, 94) : TFT_DARKGREY; // Green if turning, dark grey if idle
+            spr.drawLine(cx, cy, x_end, y_end, spokeColor);
+        }
+        
+        // Center spindle
+        spr.fillCircle(cx, cy, 5, (speed != 0) ? TFT_YELLOW : TFT_LIGHTGREY);
+        
+        // Direction Labels above the animation
+        if (speed > 0) {
+            spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+            spr.drawString("FWD CW ↻", cx - 25, 28, 1);
+        } else if (speed < 0) {
+            spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+            spr.drawString("REV CCW ↺", cx - 25, 28, 1);
+        } else {
+            spr.setTextColor(TFT_DARKGREY, TFT_BLACK);
+            spr.drawString("STOPPED", cx - 22, 28, 1);
+        }
 
         // FOOTER ZONE
         spr.drawFastHLine(0, 115, spr.width(), TFT_DARKGREY); 
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString("GRAFTS: " + String(count), 5, 120, 2);
+        spr.drawString("GRAFTS COUNT: " + String(count), 5, 118, 2);
 
-        spr.setTextColor(speed >= 0 ? tft.color565(56, 189, 248) : TFT_ORANGE, TFT_BLACK); 
-        spr.setTextDatum(TR_DATUM);
-        spr.drawString(speed >= 0 ? "FWD >>" : "<< REV", spr.width() - 5, 120, 2);
+        if (speed != 0) {
+            spr.setTextColor(speed > 0 ? tft.color565(56, 189, 248) : TFT_ORANGE, TFT_BLACK); 
+            spr.setTextDatum(TR_DATUM);
+            // Dynamic moving chevron frames
+            static uint8_t arrowFrame = 0;
+            arrowFrame = (arrowFrame + 1) % 4;
+            String arrowStr = "";
+            if (speed > 0) {
+                for (int a = 0; a < 3; a++) arrowStr += (a == arrowFrame) ? ">" : "»";
+                spr.drawString("FWD " + arrowStr, spr.width() - 5, 118, 2);
+            } else {
+                for (int a = 0; a < 3; a++) arrowStr += (a == (3 - arrowFrame)) ? "<" : "«";
+                spr.drawString(arrowStr + " REV", spr.width() - 5, 118, 2);
+            }
+        } else {
+            spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            spr.setTextDatum(TR_DATUM);
+            spr.drawString("IDLE", spr.width() - 5, 118, 2);
+        }
 
     } else if (screen == 1) {
-        // --- SCREEN 1: ENERGY STATUS ---
-        // Voltage Comparison
+        // --- SCREEN 1: ENERGY STATUS (REDESIGNED GRID) ---
+        spr.drawFastVLine(120, 25, 65, TFT_DARKGREY);
+        
+        // Left Column: BATTERY
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Bat V:", 10, 30, 2);
-        spr.drawString("Int V:", 135, 30, 2);
+        spr.drawString("BATTERY:", 10, 30, 2);
+        spr.drawString("Voltage:", 10, 50, 2);
+        spr.drawString("Percent:", 10, 70, 2);
         
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(volt, 2) + "V", 65, 30, 2);
-        spr.drawString(String(internalVoltage, 2) + "V", 190, 30, 2);
+        spr.drawString(String(volt, 2) + " V", 70, 50, 2);
+        spr.drawString(String(batPct) + " %", 70, 70, 2);
 
-        // Current & Power
+        // Right Column: LIVE SYSTEM LOAD
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Load:", 10, 60, 2);
-        spr.drawString("Pwr:", 135, 60, 2);
+        spr.drawString("SYS LOAD:", 130, 30, 2);
+        spr.drawString("Current:", 130, 50, 2);
+        spr.drawString("Power:", 130, 70, 2);
 
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString(String(amp, 2) + "A", 65, 60, 2);
-        spr.drawString(String(pwr, 1) + "W", 175, 60, 2);
+        spr.drawString(String(amp, 3) + " A", 195, 50, 2);
+        spr.drawString(String(pwr, 1) + " W", 195, 70, 2);
         
-        // Power State String
+        // Lower Zone: Charging/Discharging status bar
+        spr.drawFastHLine(0, 92, spr.width(), TFT_DARKGREY);
         spr.setTextDatum(MC_DATUM);
         if (isCharging) {
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("CHARGING via USB", spr.width()/2, 95, 2);
+            spr.drawString("⚡ CHARGING SYSTEM (USB)", spr.width() / 2, 105, 2);
         } else {
             spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-            spr.drawString("DISCHARGING (BAT)", spr.width()/2, 95, 2);
+            spr.drawString("🔋 DISCHARGING (BATTERY)", spr.width() / 2, 105, 2);
         }
-        spr.setTextDatum(TL_DATUM);
-
-        // Battery Bar
-        uint8_t barWidth = spr.width() - 10;
-        spr.drawRect(5, 115, barWidth, 14, TFT_WHITE);
-        uint8_t fillWidth = map(batPct, 0, 100, 0, barWidth - 4);
-        uint16_t barColor = (batPct < 20) ? TFT_RED : (batPct < 50) ? TFT_ORANGE : TFT_GREEN;
-        spr.fillRect(7, 117, fillWidth, 10, barColor);
 
     } else if (screen == 2) {
-        // --- SCREEN 2: NETWORK STATUS ---
-        if (wifiConnecting) {
-            spr.setTextDatum(MC_DATUM);
-            spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-            spr.drawString("WiFi Connecting...", spr.width()/2, spr.height()/2, 2);
-            spr.pushSprite(0, 0); // Push the connecting message
-            return;
-        }
-        
+        // --- SCREEN 2: NETWORK STATUS (REDESIGNED NON-BLOCKING WITH URL) ---
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Net:", 20, 35, 2);
-        spr.drawString("IP:", 20, 65, 2);
-        spr.drawString("Users:", 20, 95, 2);
+        spr.drawString("SSID/Mode:", 20, 30, 2);
+        spr.drawString("IP Address:", 20, 52, 2);
+        spr.drawString("Web URL:", 20, 74, 2);
+        spr.drawString("Active Clients:", 20, 96, 2);
 
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
         
-        // Truncate SSID if it's too long
-        String ssidName = (WiFi.status() == WL_CONNECTED) ? WiFi.SSID() : "AP Mode";
-        if (ssidName.length() > 12) {
-            ssidName = ssidName.substring(0, 10) + "..";
+        String ssidName = "AP Mode (El-Baseet)";
+        if (WiFi.status() == WL_CONNECTED) {
+            ssidName = WiFi.SSID();
+        } else if (wifiConnecting) {
+            ssidName = "Connecting...";
         }
         
-        spr.drawString(ssidName, 80, 35, 2);
-        spr.drawString(ip, 80, 65, 2);
-        spr.drawString(String(clients), 80, 95, 2);
+        if (ssidName.length() > 16) {
+            ssidName = ssidName.substring(0, 14) + "..";
+        }
+        
+        spr.drawString(ssidName, 120, 30, 2);
+        spr.drawString(ip, 120, 52, 2);
+        spr.drawString("elbaseet.local", 120, 74, 2);
+        spr.drawString(String(clients) + " Connected", 120, 96, 2);
+        
+        // Signal Quality representation at the bottom
+        if (WiFi.status() == WL_CONNECTED) {
+            int32_t rssi = WiFi.RSSI();
+            String sigStr = String(rssi) + " dBm ";
+            if (rssi >= -50) { spr.setTextColor(TFT_GREEN, TFT_BLACK); sigStr += "Excellent"; }
+            else if (rssi >= -70) { spr.setTextColor(TFT_YELLOW, TFT_BLACK); sigStr += "Good"; }
+            else { spr.setTextColor(TFT_ORANGE, TFT_BLACK); sigStr += "Weak"; }
+            spr.drawString("Signal: " + sigStr, 20, 116, 1);
+        } else {
+            spr.setTextColor(TFT_GREEN, TFT_BLACK);
+            spr.drawString("Signal: 100% (AP)", 20, 116, 1);
+        }
         
     } else if (screen == 3) {
-        // --- SCREEN 3: OSCILLATION SETTINGS ---
+        // --- SCREEN 3: OSCILLATION SETTINGS (REDESIGNED) ---
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Mode:", 20, 35, 2);
-        spr.drawString("CW Time:", 20, 65, 2);
-        spr.drawString("CCW Time:", 20, 95, 2);
+        spr.drawString("Drive Mode:", 15, 32, 2);
+        spr.drawString("CW Duration:", 15, 57, 2);
+        spr.drawString("CCW Duration:", 15, 82, 2);
+        spr.drawString("Total Period:", 15, 107, 2);
 
-        // Status
         if (oscMode) {
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("ACTIVE", 100, 35, 2);
+            spr.drawString("OSCILLATING Mode", 125, 32, 2);
         } else {
-            spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-            spr.drawString("INACTIVE", 100, 35, 2);
+            spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            spr.drawString("CONTINUOUS Mode", 125, 32, 2);
         }
+
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        spr.drawString(String(oscCW) + " ms", 125, 57, 2);
+        spr.drawString(String(oscCCW) + " ms", 125, 82, 2);
+        
+        uint32_t totalPeriod = oscCW + oscCCW;
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(oscCW) + " ms", 100, 65, 2);
-        spr.drawString(String(oscCCW) + " ms", 100, 95, 2);
+        spr.drawString(String(totalPeriod) + " ms", 125, 107, 2);
         
     } else if (screen == 4) {
-        // --- SCREEN 4: DIAGNOSTICS (NEW) ---
+        // --- SCREEN 4: DIAGNOSTICS (REDESIGNED GRID) ---
+        spr.drawFastVLine(120, 25, 65, TFT_DARKGREY);
+        
+        // Left Column: CALIBRATION
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Base I:", 10, 35, 2);
-        spr.drawString("Calib:", 125, 35, 2);
+        spr.drawString("CALIBRATION:", 10, 30, 2);
+        spr.drawString("Base I:", 10, 50, 2);
+        spr.drawString("Status:", 10, 70, 2);
         
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(baselineCurrent, 2) + "A", 70, 35, 2);
+        spr.drawString(String(baselineCurrent, 3) + " A", 70, 50, 2);
         if (calibrationNeeded) {
             spr.setTextColor(TFT_RED, TFT_BLACK);
-            spr.drawString("WAIT", 180, 35, 2);
+            spr.drawString("CALIB", 70, 70, 2);
         } else {
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("OK", 180, 35, 2);
+            spr.drawString("STABLE", 70, 70, 2);
         }
 
+        // Right Column: THRESHOLDS
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Spike:", 10, 65, 2);
-        spr.drawString("Exit:", 125, 65, 2);
+        spr.drawString("THRESHOLDS:", 130, 30, 2);
+        spr.drawString("Spike I:", 130, 50, 2);
+        spr.drawString("Reset I:", 130, 70, 2);
 
         spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-        spr.drawString(String(baselineCurrent + penetrationOffset, 2) + "A", 70, 65, 2);
-        spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 2) + "A", 180, 65, 2);
+        spr.drawString(String(baselineCurrent + penetrationOffset, 3) + " A", 190, 50, 2);
+        spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 3) + " A", 190, 70, 2);
         
+        // Bottom Sensitivity bar
+        spr.drawFastHLine(0, 92, spr.width(), TFT_DARKGREY);
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString("Sn: " + String(penetrationOffset, 2) + "A  Hy: " + String(penetrationHysteresis, 2) + "A", 10, 100, 2);
+        spr.drawString("Sens Offset: " + String(penetrationOffset, 3) + "A | Hyst: " + String(penetrationHysteresis, 3) + "A", 10, 98, 2);
+        
+        // LED Illumination Telemetry
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        uint8_t ledDiagPct = round((float)ledBrightness * 100.0f / 255.0f);
+        spr.drawString("LED Pin 17: " + String(ledDiagPct) + "% | PWM: " + String(ledBrightness) + " / 255", 10, 118, 1);
         
     } else {
-        // --- SCREEN 5: PATIENT INFO ---
+        // --- SCREEN 5: PATIENT INFO (REDESIGNED) ---
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Name:", 15, 35, 2);
-        spr.drawString("Age:", 15, 65, 2);
-        spr.drawString("Nat.:", 15, 95, 2);
-        
-        spr.setTextColor(TFT_WHITE, TFT_BLACK);
-        
-        // Truncate name if too long for screen
+        spr.drawString("Active Patient Name:", 15, 32, 2);
+        spr.drawString("Patient Age / Gen:", 15, 62, 2);
+        spr.drawString("Patient Nationality:", 15, 92, 2);
+
+        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
         String shortName = pName;
-        if(shortName.length() > 14) shortName = shortName.substring(0, 14) + "..";
-        spr.drawString(shortName, 70, 35, 2);
-        
-        spr.drawString(pAge, 70, 65, 2);
-        spr.drawString(pNat, 70, 95, 2);
+        if (shortName.length() > 18) {
+            shortName = shortName.substring(0, 16) + "..";
+        }
+        spr.drawString(shortName, 150, 32, 2);
+        spr.drawString(pAge, 150, 62, 2);
+        spr.drawString(pNat, 150, 92, 2);
     }
 
     // Finally, push the completed sprite to the screen

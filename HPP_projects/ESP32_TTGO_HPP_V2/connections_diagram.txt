@@ -23,6 +23,7 @@ FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
   +----------------------+ |                             |   | [GPIO 26] Enc. B    |<-+|
                            v                             |   | [GPIO 14] ADC EN    |--+|
                  (Common System Ground)                  |   | [GPIO 34] VBAT In   |<-+|
+                           |                             |   | [GPIO 17] LED PWM   |---+
                            |                             |   +---------|-----------+  ||
                            |                             |             v              ||
   +------------------------+                             |     [Gated Internal        ||
@@ -54,9 +55,20 @@ FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
                                            | [B]   Encoder Chan B |<--[GREEN Wire]-----+ (GPIO 26)
                                            +----------------------+
 
+  SURGICAL LED (PIN 17):
+  +----------------------+
+  | Surgical LED Module  |
+  | [PWM+] Positive / Anode <----[ ESP32 GPIO 17 ]
+  | [GND]  Common Ground    <----[ ESP32 GND ]
+  +----------------------+
+
 --------------------------------------------------------------------------------
 WIRING TABLE REFERENCE:
 --------------------------------------------------------------------------------
+SURGICAL LED ILLUMINATION:
+  LED Control / Anode (+) -> ESP32 GPIO 17 (LEDC PWM Channel 2, 5 kHz)
+  Ground / Cathode (-)    -> ESP32 GND (via current limiting resistor or LED driver)
+
 INA219 SENSOR:
   VIN+ (Positive Input)   -> 18650 Battery (+)
   VIN- (Positive Output)  -> MAX1508 (MX1508) VCC

@@ -1,443 +1,1138 @@
 /**
+
  * MODULE: Integrated TTGO T-Display (ST7789)
+
  * DESCRIPTION: This module handles the initialization and UI drawing routines
+
  *              for the 1.14" ST7789 color TFT display on the TTGO T-Display board.
+
  *              It uses the TFT_eSPI library.
+
  * DEPENDENCIES: TFT_eSPI.h, SPI.h
+
  * Created by Eng.Osama Omar
+
  * Senior Integration Lead
+
  * Cairo,Egypt
+
  */
+
 #ifndef DISPLAY_H
+
 #define DISPLAY_H
 
+
+
 #include <TFT_eSPI.h>
+
 #include <SPI.h>
+
 #include <WiFi.h>
 
+#include <TJpg_Decoder.h>
+
+
+
+// Forward declaration for TJpg_Decoder rendering callback
+
+bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);
+
+
+
+// Animation Frame Counts
+
+#define WELCOME_FRAMES 70
+
+#define START_OP_FRAMES 68
+
+#define STOP_OP_FRAMES 60
+
+#define REPORT_FRAMES 25
+
+
+
+// Animation Function Prototypes
+
+void showWelcomeAnimation();
+
+void showStartOperationAnimation();
+
+void showStopOperationAnimation();
+
+void showReportAnimation();
+
+
+
 // Extern global references for local menu system
+
+extern bool systemEnabled;
+extern unsigned long lastInteractionTime;
 extern bool inMenuMode;
+extern uint8_t ledBrightness;
+extern void setLEDBrightness(uint8_t brightness);
+
 extern uint8_t currentMenuItem;
+
 extern uint8_t webBaseSpeed;
+
 extern bool oscillatingMode;
+
 extern uint8_t motorVersion;
+
 extern float internalVoltage;
+
 extern float baselineCurrent;
+
 extern float penetrationOffset;
+
 extern float penetrationHysteresis;
+
 extern bool calibrationNeeded;
 
+
+
 TFT_eSPI tft = TFT_eSPI();
+
 TFT_eSprite spr = TFT_eSprite(&tft); // Create the Sprite object
 
+TFT_eSprite clockSpr = TFT_eSprite(&tft); // Dedicated sprite for flicker-free clock panel
+
+
+
 // --- CONFIRMATION MESSAGE STATE ---
+
 static String s_confirmationMessage = "";
+
 static unsigned long s_confirmationTimer = 0;
+
 static bool s_oledInitialized = false;
+
 #define CONFIRMATION_DURATION 2000 // Display message for 2 seconds
+
+
 
 // --- GRAFT FLASH MESSAGE STATE ---
+
 static String s_flashMessage = "";
+
 static unsigned long s_flashTimer = 0;
+
 #define CONFIRMATION_DURATION 2000 // Display message for 2 seconds
 
+
+
 /**
+
  * @brief Initializes the ST7789 TFT display on the TTGO T-Display.
+
  * 
+
  * This function initializes the TFT_eSPI library, sets the screen rotation,
+
  * and clears the display to a default background color.
+
  * NOTE: Ensure your TFT_eSPI library is configured for the TTGO T-Display
+
  * in the User_Setup.h file.
+
  */
+
 void setupOLED() {
+    // 1. Power on LCD panel & peripheral circuitry (GPIO 15)
+    pinMode(15, OUTPUT);
+    digitalWrite(15, HIGH);
+    delay(50); // Allow LCD power rail to fully stabilize
+
+    // 2. Hardware reset of LCD controller (GPIO 5)
+    pinMode(5, OUTPUT);
+    digitalWrite(5, HIGH);
+    delay(10);
+    digitalWrite(5, LOW);
+    delay(20);
+    digitalWrite(5, HIGH);
+    delay(50); // Allow display controller to reboot cleanly
+
+    // 3. Power on LCD backlight (GPIO 38)
+    pinMode(38, OUTPUT);
+    digitalWrite(38, HIGH);
+
     tft.init();
+
     tft.setRotation(1); // Use 1 or 3 for landscape orientation
+
     tft.fillScreen(TFT_BLACK);
 
+
+
     // Create a 16-bit color sprite the size of the screen
+
     // All drawing will be done on this sprite, then pushed to the screen
+
     spr.setColorDepth(16);
+
     spr.createSprite(tft.width(), tft.height());
+
+
+
+    // Create dedicated sprite for the right-hand clock panel (adapts to display dimensions)
+
+    clockSpr.setColorDepth(16);
+
+    int16_t clkWidth = (tft.width() > 135) ? (tft.width() - 135) : 105;
+
+    clockSpr.createSprite(clkWidth, tft.height());
+
+
+
     s_oledInitialized = true;
+
 }
 
+
+
 /**
+
  * @brief Displays a professional splash screen for the system.
+
  */
+
 void showWelcomeLogo() {
+
     if (!s_oledInitialized) return;
 
+
+
     spr.fillSprite(TFT_BLACK); // Use fillSprite to clear the buffer
+
     
+
     // Setup text alignment for easy centering
+
     spr.setTextDatum(MC_DATUM); // Middle-Center datum
 
+
+
     // 1. Branding - Main Title ("EL-BASEET")
+
     // Color matching #38bdf8 (Light Blue / Cyan)
+
     spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+
     spr.setTextSize(3);
+
     spr.drawString("EL-BASEET", spr.width() / 2, 35, 1);
 
+
+
     // Decorative center line
+
     spr.drawFastHLine(20, 60, spr.width() - 40, TFT_DARKGREY);
 
+
+
     // 2. Subtitle ("HAIR PEN-V2")
+
     // Color matching white/light cyan
+
     spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+
     spr.setTextSize(2);
+
     spr.drawString("HAIR PEN-V2", spr.width() / 2, 85, 1);
 
+
+
     // 3. Sub-subtitle ("SURGICAL ASSISTANT")
+
     // Color matching #94a3b8 (Light Grey)
+
     spr.setTextColor(tft.color565(148, 163, 184), TFT_BLACK);
+
     spr.setTextSize(1);
+
     spr.drawString("SURGICAL ASSISTANT", spr.width() / 2, 110, 2);
 
+
+
     // Reset datum for other functions
+
     spr.setTextDatum(TL_DATUM);
 
+
+
     // Push the completed sprite to the screen at coordinate 0,0
+
     spr.pushSprite(0, 0);
+
 }
 
+
+
 /**
+
  * @brief Draws a dynamic battery icon in the top-right corner of the sprite.
+
  * 
+
  * This function handles drawing a battery icon that reflects the current charge
+
  * state. It shows a static, color-coded level when on battery power and a
+
  * cycling animation when charging.
+
  * 
+
  * @param spr A reference to the TFT_eSprite object to draw on.
+
  * @param isConnected True if a battery is detected.
+
  * @param isCharging True if the device is plugged in and charging.
+
  * @param batPct The current battery percentage (0-100).
+
  */
+
 void drawBatteryIcon(TFT_eSprite &spr, bool isConnected, bool isCharging, uint8_t batPct) {
+
     int16_t x = spr.width() - 28; // Top-right corner X position
+
     int16_t y = 4;                // Top-right corner Y position
 
+
+
     if (isCharging) {
+
         // Draw charging bolt icon
+
         spr.setTextColor(TFT_GREEN);
+
         spr.drawString("CHG", x - 30, y, 2);
+
         spr.fillTriangle(x + 13, y + 1, x + 7, y + 7, x + 10, y + 7, TFT_YELLOW);
+
         spr.fillTriangle(x + 10, y + 7, x + 16, y + 1, x + 13, y + 1, TFT_YELLOW);
+
         spr.fillTriangle(x + 7, y + 6, x + 13, y + 12, x + 10, y + 12, TFT_YELLOW);
+
         spr.fillTriangle(x + 10, y + 12, x + 4, y + 6, x + 7, y + 6, TFT_YELLOW);
+
     } else if (isConnected) {
+
         // Draw static battery level icon
+
         spr.setTextColor(TFT_WHITE);
+
         spr.drawString(String(batPct) + "%", x - 8, y, 2);
+
         spr.drawRect(x, y, 22, 12, TFT_WHITE); // Body
+
         spr.fillRect(x + 22, y + 3, 3, 6, TFT_WHITE); // Terminal
 
+
+
         uint16_t barColor = (batPct < 20) ? TFT_RED : (batPct < 50) ? TFT_ORANGE : TFT_GREEN;
+
         int fillWidth = map(batPct, 0, 100, 0, 18);
+
         if (fillWidth > 0) {
+
             spr.fillRect(x + 2, y + 2, fillWidth, 8, barColor);
+
         }
+
     }
+
 }
 
+
+
 /**
+
  * @brief Refreshes the OLED display with current motor and battery telemetry.
+
  * 
+
  * This function clears the display, draws the UI elements, and updates the
+
  * displayed values for motor speed, battery voltage, and battery current.
+
  * 
+
  * @param speed Current PWM duty cycle (0-255) for the motor.
+
  * @param volt Measured battery voltage (e.g., 3.85V).
+
  * @param amp Measured current draw in Amperes (e.g., 0.25A).
+
  * @param currentTrip Safety flag indicating an overcurrent event.
+
  * @param voltageTrip Safety flag indicating low battery voltage.
+
  * @param rpm The calculated estimated RPM of the motor.
+
  * @param pwr The calculated power consumption in Watts.
+
  * @param isBatConnected Flag for battery presence.
+
  * @param batPct Battery charge percentage.
+
  * @param isCharging Flag for charging status.
+
  * @param screen The active screen index (0: Drive, 1: Energy, 2: Net Status).
+
  * @param ip The Access Point IP address.
+
  * @param clients Number of connected WiFi stations.
+
  * @param debug Flag for engineering debug mode.
+
  * @param wifiConnecting Flag indicating if STA connection is in progress.
+
  * @param oscMode Flag indicating if oscillation mode is active.
+
  * @param oscCW The duration for clockwise rotation in ms.
+
  * @param oscCCW The duration for counter-clockwise rotation in ms.
+
  */
+
 void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool voltageTrip, uint32_t rpm, float pwr, bool isBatConnected, uint8_t batPct, bool isCharging, uint8_t screen, String ip, uint8_t clients, bool debug, uint32_t count, bool wifiConnecting, bool oscMode, uint32_t oscCW, uint32_t oscCCW, String pName, String pAge, String pNat) {
+
     spr.fillSprite(TFT_BLACK); // Clear the sprite buffer, not the screen
+
     spr.setTextColor(TFT_WHITE, TFT_BLACK);
+
     
+
     if (millis() - s_confirmationTimer < CONFIRMATION_DURATION) {
+
         spr.setTextDatum(MC_DATUM); // Middle-Center datum
+
         spr.setTextSize(2);
+
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Cyan matching brand
+
         spr.drawString(s_confirmationMessage, spr.width() / 2, spr.height() / 2);
+
         spr.pushSprite(0, 0); // Push the confirmation message to the screen
+
         return; // Skip normal screen drawing
+
     }
+
+
 
     if (millis() - s_flashTimer < 200) { // Display flash for 200ms
+
         spr.fillSprite(TFT_WHITE); // White background
+
         spr.setTextDatum(MC_DATUM);
+
         spr.setTextColor(TFT_BLACK); // Black text
+
         spr.drawString(s_flashMessage, spr.width() / 2, spr.height() / 2, 4);
+
         spr.pushSprite(0, 0);
+
         return; // Skip normal screen drawing
+
     }
+
+
 
     // --- LOCAL MENU MODE OVERRIDE ---
+
     if (inMenuMode) {
+
         spr.fillSprite(TFT_BLACK);
+
         
+
         // Draw Header
+
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
         spr.drawString("SYSTEM MENU", 5, 5, 2);
+
         spr.drawFastHLine(0, 22, spr.width(), TFT_DARKGREY);
 
+
+
         const char* labels[] = {
+
             "1. Speed: ",
-            "2. Mode: ",
-            "3. Hardw: ",
-            "4. Reset Grafts",
-            "5. Exit Menu"
+
+            "2. LED Light: ",
+
+            "3. Mode: ",
+
+            "4. Hardw: ",
+
+            "5. Reset Grafts",
+
+            "6. Exit Menu"
+
         };
 
-        for (uint8_t i = 0; i < 5; i++) {
-            int yPos = 30 + (i * 18);
+
+
+        for (uint8_t i = 0; i < 6; i++) {
+
+            int yPos = 26 + (i * 17);
+
             
+
             // Draw background highlight bar for the highlighted item
+
             if (i == currentMenuItem) {
+
                 spr.fillRoundRect(2, yPos - 1, spr.width() - 4, 16, 3, TFT_BLUE);
+
                 spr.setTextColor(TFT_WHITE, TFT_BLUE);
+
             } else {
+
                 spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
             }
 
+
+
             String text = labels[i];
+
             if (i == 0) text += String(webBaseSpeed);
-            else if (i == 1) text += (oscillatingMode ? "OSC" : "NORMAL");
-            else if (i == 2) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
+
+            else if (i == 1) {
+
+                if (ledBrightness == 0) text += "OFF";
+
+                else {
+
+                    int percentLed = round((float)ledBrightness * 100.0f / 255.0f);
+
+                    text += String(percentLed) + "%";
+
+                }
+
+            }
+
+            else if (i == 2) text += (oscillatingMode ? "OSC" : "NORMAL");
+
+            else if (i == 3) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
+
+
 
             spr.drawString(text, 10, yPos, 2);
+
         }
+
         spr.pushSprite(0, 0);
+
         return; // Skip drawing normal telemetry screens
+
     }
+
+
+
+    // Check if we should activate the elegant Animated screensaver.
+
+    // Activated if the system is IDLE (no motor speed, system disabled, not in menu, and no interaction for > 15 seconds)
+
+    bool inScreensaver = (!inMenuMode && !systemEnabled && abs(speed) <= 10 && (millis() - lastInteractionTime > 15000));
+
+    static bool s_wasScreensaver = false;
+
+    
+
+    if (inScreensaver) {
+
+        // Clear screen ONCE upon transition into screensaver mode (prevents flicker)
+
+        if (!s_wasScreensaver) {
+
+            tft.fillScreen(TFT_BLACK);
+
+            s_wasScreensaver = true;
+
+        }
+
+        
+
+        // 1. Play the animation frame from the hair frame set
+
+        static uint8_t s_savFrame = 0;
+
+        s_savFrame = (s_savFrame + 1) % STOP_OP_FRAMES;
+
+        
+
+        TJpgDec.setJpgScale(1);
+
+        TJpgDec.setSwapBytes(true);
+
+        TJpgDec.setCallback(tft_output);
+
+        int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
+
+        TJpgDec.drawFsJpg(0, yOffset, "/hair_" + String(s_savFrame) + ".jpg");
+
+        
+
+        // 2. Render real-time clock and status into dedicated double-buffered sprite
+
+        clockSpr.fillSprite(TFT_BLACK);
+
+        
+
+        int16_t centerX = clockSpr.width() / 2;
+
+        clockSpr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Brand Cyan
+
+        clockSpr.setTextDatum(TC_DATUM);
+
+        clockSpr.drawString("EL-BASEET", centerX, 12, 2);
+
+        
+
+        clockSpr.drawFastHLine(5, 30, clockSpr.width() - 10, TFT_DARKGREY);
+
+        
+
+        struct tm timeinfo;
+
+        bool hasTime = getLocalTime(&timeinfo, 5); // Short non-blocking timeout
+
+        
+
+        if (hasTime && timeinfo.tm_year >= 120) {
+
+            // Live Digital Clock
+
+            char timeStr[6]; // "HH:MM"
+
+            strftime(timeStr, sizeof(timeStr), "%H:%M", &timeinfo);
+
+            clockSpr.setTextColor(TFT_WHITE, TFT_BLACK);
+
+            clockSpr.drawString(timeStr, centerX, 38, 4);
+
+            
+
+            // Blinking Seconds
+
+            char secStr[4]; // ":SS"
+
+            strftime(secStr, sizeof(secStr), ":%S", &timeinfo);
+
+            clockSpr.setTextColor(tft.color565(14, 165, 233), TFT_BLACK);
+
+            clockSpr.drawString(secStr, centerX, 64, 2);
+
+            
+
+            // Abbreviated Date
+
+            char dateStr[20]; // "Sep 19, 2026"
+
+            strftime(dateStr, sizeof(dateStr), "%b %d, %Y", &timeinfo);
+
+            clockSpr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
+            clockSpr.drawString(dateStr, centerX, 84, 1);
+
+        } else {
+
+            // Standby Status
+
+            clockSpr.setTextColor(TFT_GREEN, TFT_BLACK);
+
+            if ((millis() / 500) % 2 == 0) {
+
+                clockSpr.drawString("● READY", centerX, 50, 2);
+
+            } else {
+
+                clockSpr.drawString("  READY", centerX, 50, 2);
+
+            }
+
+            
+
+            clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
+            clockSpr.drawString("SYS ACTIVE", centerX, 72, 1);
+
+        }
+
+        
+
+        clockSpr.drawFastHLine(5, 104, clockSpr.width() - 10, TFT_DARKGREY);
+
+        
+
+        // Onscreen live battery telemetry
+
+        clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
+        clockSpr.drawString("BAT: " + String(batPct) + "%", centerX, 112, 1);
+
+        
+
+        // Push the entire right panel in ONE atomic DMA transfer (zero flicker)
+
+        clockSpr.pushSprite(135, 0);
+
+        return;
+
+    } else {
+
+        s_wasScreensaver = false;
+
+    }
+
+
 
     // --- SHARED HEADER ZONE ---
+
     spr.setTextSize(1);
+
     spr.setTextDatum(TL_DATUM); // Top-Left datum
+
     bool anyTrip = currentTrip || voltageTrip;
+
     
+
     // Header Text
+
     spr.setCursor(5, 5);
+
     spr.setTextColor(tft.color565(56, 189, 248)); // Match Web Dashboard Cyan
+
     if (anyTrip) {
+
         // Flash the Alarm text if a trip is active
+
         if ((millis() / 500) % 2 == 0) spr.drawString("!!! ALARM !!!", 5, 5, 2);
+
     }
+
     else if (screen == 0) spr.drawString("SURGICAL DASH", 5, 5, 2);
+
     else if (screen == 1) spr.drawString("ENERGY STATUS", 5, 5, 2);
+
     else if (screen == 2) spr.drawString("NET STATUS", 5, 5, 2);
+
     else if (screen == 3) spr.drawString("OSCILLATION", 5, 5, 2);
+
     else if (screen == 4) spr.drawString("DIAGNOSTICS", 5, 5, 2);
+
     else spr.drawString("PATIENT INFO", 5, 5, 2);
 
-    // Debug Indicator (Inverted Tag) - Flashing every 500ms for high visibility
-    if (debug && (millis() / 500) % 2 == 0) {
-        spr.fillRoundRect(spr.width() - 75, 3, 40, 16, 3, TFT_YELLOW);
-        spr.setTextColor(TFT_BLACK, TFT_YELLOW);
-        spr.drawString("DBG", spr.width() - 70, 5, 2);
+    // Surgical LED Illumination Status Indicator in Header
+    if (ledBrightness > 0) {
+        uint8_t ledPct = round((float)ledBrightness * 100.0f / 255.0f);
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        spr.drawString("LED:" + String(ledPct) + "%", 118, 5, 2);
     }
+
+
+
+    // Debug Indicator (Inverted Tag) - Flashing every 500ms for high visibility
+
+    if (debug && (millis() / 500) % 2 == 0) {
+
+        spr.fillRoundRect(spr.width() - 75, 3, 40, 16, 3, TFT_YELLOW);
+
+        spr.setTextColor(TFT_BLACK, TFT_YELLOW);
+
+        spr.drawString("DBG", spr.width() - 70, 5, 2);
+
+    }
+
     
+
     // Power Status
+
     spr.setTextDatum(TR_DATUM); // Top-Right datum
+
     drawBatteryIcon(spr, isBatConnected, isCharging, batPct);
 
+
+
     spr.drawFastHLine(0, 22, spr.width(), TFT_DARKGREY);
+
     spr.setTextDatum(TL_DATUM); // Reset datum
 
+
+
     if (anyTrip && !debug) {
+
         // --- ALARM OVERRIDE ---
+
         spr.setTextDatum(MC_DATUM);
+
         spr.setTextColor(TFT_RED, TFT_BLACK);
+
         spr.drawString(currentTrip ? "OVERCURRENT" : "LOW BATTERY", spr.width()/2, 50, 4);
+
         spr.drawString("SYSTEM HALTED", spr.width()/2, 85, 4);
+
         spr.pushSprite(0, 0); // Push the alarm message to the screen
+
         return; // Skip drawing normal telemetry
+
     }
+
+
 
     if (screen == 0) {
+
         // --- SCREEN 0: DRIVE DASHBOARD ---
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("SET:", 10, 35, 2);
+
         spr.drawString("RPM:", 10, 75, 2);
+
         
+
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+
         spr.drawString(String(abs(speed)), 55, 35, 4);
+
         
+
         spr.setTextColor(TFT_GREEN, TFT_BLACK);
+
         spr.drawString(String(rpm), 55, 75, 4);
 
+
+
         // FOOTER ZONE
+
         spr.drawFastHLine(0, 115, spr.width(), TFT_DARKGREY); 
+
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
         spr.drawString("GRAFTS: " + String(count), 5, 120, 2);
 
+
+
         spr.setTextColor(speed >= 0 ? tft.color565(56, 189, 248) : TFT_ORANGE, TFT_BLACK); 
+
         spr.setTextDatum(TR_DATUM);
+
         spr.drawString(speed >= 0 ? "FWD >>" : "<< REV", spr.width() - 5, 120, 2);
 
+
+
     } else if (screen == 1) {
+
         // --- SCREEN 1: ENERGY STATUS ---
+
         // Voltage Comparison
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Bat V:", 10, 30, 2);
+
         spr.drawString("Int V:", 135, 30, 2);
+
         
+
         spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
         spr.drawString(String(volt, 2) + "V", 65, 30, 2);
+
         spr.drawString(String(internalVoltage, 2) + "V", 190, 30, 2);
 
+
+
         // Current & Power
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Load:", 10, 60, 2);
+
         spr.drawString("Pwr:", 135, 60, 2);
 
+
+
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+
         spr.drawString(String(amp, 2) + "A", 65, 60, 2);
+
         spr.drawString(String(pwr, 1) + "W", 175, 60, 2);
+
         
+
         // Power State String
+
         spr.setTextDatum(MC_DATUM);
+
         if (isCharging) {
+
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
+
             spr.drawString("CHARGING via USB", spr.width()/2, 95, 2);
+
         } else {
+
             spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+
             spr.drawString("DISCHARGING (BAT)", spr.width()/2, 95, 2);
+
         }
+
         spr.setTextDatum(TL_DATUM);
 
+
+
         // Battery Bar
+
         uint8_t barWidth = spr.width() - 10;
+
         spr.drawRect(5, 115, barWidth, 14, TFT_WHITE);
+
         uint8_t fillWidth = map(batPct, 0, 100, 0, barWidth - 4);
+
         uint16_t barColor = (batPct < 20) ? TFT_RED : (batPct < 50) ? TFT_ORANGE : TFT_GREEN;
+
         spr.fillRect(7, 117, fillWidth, 10, barColor);
 
+
+
     } else if (screen == 2) {
+
         // --- SCREEN 2: NETWORK STATUS ---
+
         if (wifiConnecting) {
+
             spr.setTextDatum(MC_DATUM);
+
             spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
             spr.drawString("WiFi Connecting...", spr.width()/2, spr.height()/2, 2);
+
             spr.pushSprite(0, 0); // Push the connecting message
+
             return;
+
         }
+
         
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Net:", 20, 35, 2);
+
         spr.drawString("IP:", 20, 65, 2);
+
         spr.drawString("Users:", 20, 95, 2);
 
+
+
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+
         
+
         // Truncate SSID if it's too long
+
         String ssidName = (WiFi.status() == WL_CONNECTED) ? WiFi.SSID() : "AP Mode";
+
         if (ssidName.length() > 12) {
+
             ssidName = ssidName.substring(0, 10) + "..";
+
         }
+
         
+
         spr.drawString(ssidName, 80, 35, 2);
+
         spr.drawString(ip, 80, 65, 2);
+
         spr.drawString(String(clients), 80, 95, 2);
+
         
+
     } else if (screen == 3) {
+
         // --- SCREEN 3: OSCILLATION SETTINGS ---
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Mode:", 20, 35, 2);
+
         spr.drawString("CW Time:", 20, 65, 2);
+
         spr.drawString("CCW Time:", 20, 95, 2);
 
+
+
         // Status
+
         if (oscMode) {
+
             spr.setTextColor(TFT_GREEN, TFT_BLACK);
+
             spr.drawString("ACTIVE", 100, 35, 2);
+
         } else {
+
             spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+
             spr.drawString("INACTIVE", 100, 35, 2);
-        }
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(oscCW) + " ms", 100, 65, 2);
-        spr.drawString(String(oscCCW) + " ms", 100, 95, 2);
-        
-    } else if (screen == 4) {
-        // --- SCREEN 4: DIAGNOSTICS (NEW) ---
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Base I:", 10, 35, 2);
-        spr.drawString("Calib:", 125, 35, 2);
-        
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(baselineCurrent, 2) + "A", 70, 35, 2);
-        if (calibrationNeeded) {
-            spr.setTextColor(TFT_RED, TFT_BLACK);
-            spr.drawString("WAIT", 180, 35, 2);
-        } else {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("OK", 180, 35, 2);
+
         }
 
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
+        spr.drawString(String(oscCW) + " ms", 100, 65, 2);
+
+        spr.drawString(String(oscCCW) + " ms", 100, 95, 2);
+
+        
+
+    } else if (screen == 4) {
+
+        // --- SCREEN 4: DIAGNOSTICS (NEW) ---
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
+        spr.drawString("Base I:", 10, 35, 2);
+
+        spr.drawString("Calib:", 125, 35, 2);
+
+        
+
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+
+        spr.drawString(String(baselineCurrent, 2) + "A", 70, 35, 2);
+
+        if (calibrationNeeded) {
+
+            spr.setTextColor(TFT_RED, TFT_BLACK);
+
+            spr.drawString("WAIT", 180, 35, 2);
+
+        } else {
+
+            spr.setTextColor(TFT_GREEN, TFT_BLACK);
+
+            spr.drawString("OK", 180, 35, 2);
+
+        }
+
+
+
+        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Spike:", 10, 65, 2);
+
         spr.drawString("Exit:", 125, 65, 2);
 
+
+
         spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+
         spr.drawString(String(baselineCurrent + penetrationOffset, 2) + "A", 70, 65, 2);
+
         spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 2) + "A", 180, 65, 2);
+
         
+
         spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString("Sn: " + String(penetrationOffset, 2) + "A  Hy: " + String(penetrationHysteresis, 2) + "A", 10, 100, 2);
+
+        spr.drawString("Sn: " + String(penetrationOffset, 2) + "A  Hy: " + String(penetrationHysteresis, 2) + "A", 10, 98, 2);
+
+        // LED Illumination Telemetry
+        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+        uint8_t ledDiagPct = round((float)ledBrightness * 100.0f / 255.0f);
+        spr.drawString("LED Pin 18: " + String(ledDiagPct) + "% | PWM: " + String(ledBrightness) + " / 255", 10, 118, 1);
+
         
+
     } else {
+
         // --- SCREEN 5: PATIENT INFO ---
+
         spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
         spr.drawString("Name:", 15, 35, 2);
+
         spr.drawString("Age:", 15, 65, 2);
+
         spr.drawString("Nat.:", 15, 95, 2);
+
         
+
         spr.setTextColor(TFT_WHITE, TFT_BLACK);
+
         
+
         // Truncate name if too long for screen
+
         String shortName = pName;
+
         if(shortName.length() > 14) shortName = shortName.substring(0, 14) + "..";
+
         spr.drawString(shortName, 70, 35, 2);
+
         
+
         spr.drawString(pAge, 70, 65, 2);
+
         spr.drawString(pNat, 70, 95, 2);
+
     }
 
+
+
     // Finally, push the completed sprite to the screen
+
     spr.pushSprite(0, 0);
+
 }
 
+
+
 /**
+
  * @brief Sets a confirmation message to be displayed on the OLED.
+
  * @param msg The message string to display.
+
  */
+
 void displayWebConfirmation(String msg) {
+
     s_confirmationMessage = msg;
+
     s_confirmationTimer = millis();
+
 }
 
+
+
 /**
+
  * @brief Sets a confirmation message specifically for graft detection.
+
  * @param count The new graft count to display.
+
  */
+
 void displayGraftFlash(uint32_t count) {
+
     s_flashMessage = String(count);
+
     s_flashTimer = millis();
+
 }
+
+
 
 #endif // DISPLAY_H

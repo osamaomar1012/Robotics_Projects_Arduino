@@ -18,6 +18,12 @@
 #define BTN_LEFT  0
 #define BTN_RIGHT 35
 
+// Surgical LED Illumination Definitions (Pin 17)
+#define LED_PIN        17
+#define PWM_CHAN_LED   2
+#define LED_PWM_FREQ   5000
+#define LED_PWM_RES    8
+
 // JGA12-N20 Encoder Definitions & Wire Colors
 // - Red Wire    -> Motor Positive (+)  -> MAX1508 (MX1508) OUT1
 // - White Wire  -> Motor Negative (-)  -> MAX1508 (MX1508) OUT2
@@ -32,10 +38,17 @@ volatile long encoderTicks = 0;
 uint8_t motorVersion = 1;      // 1 = Version 1 (Motor + Encoder), 2 = Version 2 (Motor without Encoder)
 
 void IRAM_ATTR encoderISR() {
-    if (digitalRead(ENCODER_PIN_B) == HIGH) {
-        encoderTicks++;
-    } else {
-        encoderTicks--;
+    static unsigned long lastInterruptTime = 0;
+    unsigned long now = micros();
+    // Filter out high-frequency electrical/PWM noise spikes (interrupt bounce)
+    // 150us threshold supports physical speeds up to 1,100 RPM (at 360 PPR), blocking MHz noise
+    if (now - lastInterruptTime > 150) {
+        if (digitalRead(ENCODER_PIN_B) == HIGH) {
+            encoderTicks++;
+        } else {
+            encoderTicks--;
+        }
+        lastInterruptTime = now;
     }
 }
 
@@ -101,8 +114,23 @@ bool oscillatingMode = false; // Master flag for oscillation mode
 uint32_t oscillationDuration = 2000; // Default total duration for web UI compatibility
 bool wifiConnecting = false; // Flag to indicate if STA connection is in progress
 bool inMenuMode = false;      // True if navigating the on-device menu
-uint8_t currentMenuItem = 0;  // Current selected menu option (0-4)
+uint8_t currentMenuItem = 0;  // Current selected menu option (0-5)
 Preferences preferences;
+
+// --- Surgical LED Illumination State & Control (Pin 17) ---
+uint8_t ledBrightness = 0; // PWM duty cycle (0-255) for surgical LED on Pin 17
+
+void setLEDBrightness(uint8_t brightness) {
+    ledBrightness = brightness;
+    ledcWrite(PWM_CHAN_LED, ledBrightness);
+    preferences.putUChar("ledBri", ledBrightness);
+}
+
+void setupLED() {
+    ledcSetup(PWM_CHAN_LED, LED_PWM_FREQ, LED_PWM_RES);
+    ledcAttachPin(LED_PIN, PWM_CHAN_LED);
+    ledcWrite(PWM_CHAN_LED, ledBrightness);
+}
 
 // --- Oscillation Control Variables ---
 uint32_t oscillationDurationCW = 2000; // Duration for Clockwise rotation (ms)
@@ -124,6 +152,7 @@ String initialScanResultsJson = "[]"; // Cache for startup scan results
 
 // --- Operation State Machine ---
 OperationState operationState = IDLE;
+volatile AnimationTrigger pendingAnimation = ANIM_NONE;
 
 // --- Report Generation Variables ---
 String patientName = "N/A";
@@ -153,7 +182,10 @@ void handleGraftCounter();
 void updateUI();
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);
 String getFormattedDate();
-void showAnimatedLogo();
+void showWelcomeAnimation();
+void showStartOperationAnimation();
+void showStopOperationAnimation();
+void showReportAnimation();
 void displayGraftFlash(uint32_t count); // Forward declare the new function
 
 /**
@@ -167,45 +199,79 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) 
 }
 
 /**
- * @brief Displays an animated logo by iterating through JPEG files in SPIFFS.
+ * @brief Displays the startup welcome animation (240x135) iterating through JPEG frames in SPIFFS.
  */
-void showAnimatedLogo() {
+void showWelcomeAnimation() {
     tft.fillScreen(TFT_BLACK);
-
-    // --- Setup for text and JPEG decoding ---
-    tft.setTextDatum(MC_DATUM); // Middle-Center datum for easy centering
-    // Use a smoother vector font instead of the default scaled-up font.
-    tft.setTextFont(2);
-
     TJpgDec.setJpgScale(1);
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tft_output);
 
-    // --- Strings for the typewriter effect ---
-    String line1 = "EL-BASEET";
-    String line2 = "HAIR PEN";
-    int totalChars = line1.length() + line2.length();
-    int framesPerChar = 111 / totalChars; // Draw one char every ~6 frames
-
-    // --- Main animation and typewriter loop ---
-    for (int i = 1; i <= 111; i++) {
-        // 1. Draw the current animation frame on the left
-        TJpgDec.drawFsJpg(0, 3, "/Image_" + String(i) + ".jpg");
-
-        // 2. Calculate how many characters of text should be visible
-        int charsToShow = i / framesPerChar;
-
-        // 3. Draw the first line of text
-        if (charsToShow > 0) {
-            tft.setTextColor(TFT_CYAN, TFT_BLACK);
-            tft.drawString(line1.substring(0, min(charsToShow, (int)line1.length())), 184, 45);
-        }
-        // 4. Draw the second line of text
-        if (charsToShow > line1.length()) {
-            tft.setTextColor(TFT_WHITE, TFT_BLACK);
-            tft.drawString(line2.substring(0, charsToShow - line1.length()), 184, 75);
-        }
+    for (int i = 0; i < WELCOME_FRAMES; i++) {
+        TJpgDec.drawFsJpg(0, 0, "/welcome_" + String(i) + ".jpg");
+        delay(20);
     }
+    // Retain the final frame smoothly until updateUI() paints the active dashboard
+}
+
+/**
+ * @brief Displays the Start Operation (hair transplant) animation (135x135 centered at x=52, y=0).
+ */
+void showStartOperationAnimation() {
+    tft.fillScreen(TFT_WHITE);
+    TJpgDec.setJpgScale(1);
+    TJpgDec.setSwapBytes(true);
+    TJpgDec.setCallback(tft_output);
+
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
+    for (int i = 0; i < START_OP_FRAMES; i++) {
+        if (safetyTripped || lowBatteryTripped) break; // Emergency safety abort
+        TJpgDec.drawFsJpg(xOffset, 0, "/hair_transplant_" + String(i) + ".jpg");
+        delay(15);
+        dnsServer.processNextRequest();
+        server.handleClient();
+    }
+    tft.fillScreen(TFT_BLACK);
+}
+
+/**
+ * @brief Displays the Stop Operation (hair) animation (135x135 centered at x=52, y=0).
+ */
+void showStopOperationAnimation() {
+    tft.fillScreen(TFT_WHITE);
+    TJpgDec.setJpgScale(1);
+    TJpgDec.setSwapBytes(true);
+    TJpgDec.setCallback(tft_output);
+
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
+    for (int i = 0; i < STOP_OP_FRAMES; i++) {
+        if (safetyTripped || lowBatteryTripped) break;
+        TJpgDec.drawFsJpg(xOffset, 0, "/hair_" + String(i) + ".jpg");
+        delay(15);
+        dnsServer.processNextRequest();
+        server.handleClient();
+    }
+    tft.fillScreen(TFT_BLACK);
+}
+
+/**
+ * @brief Displays the Generate Report animation (135x135 centered at x=52, y=0).
+ */
+void showReportAnimation() {
+    tft.fillScreen(TFT_WHITE);
+    TJpgDec.setJpgScale(1);
+    TJpgDec.setSwapBytes(true);
+    TJpgDec.setCallback(tft_output);
+
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
+    for (int i = 0; i < REPORT_FRAMES; i++) {
+        if (safetyTripped || lowBatteryTripped) break;
+        TJpgDec.drawFsJpg(xOffset, 0, "/report_" + String(i) + ".jpg");
+        delay(20);
+        dnsServer.processNextRequest();
+        server.handleClient();
+    }
+    tft.fillScreen(TFT_BLACK);
 }
 
 /**
@@ -287,7 +353,12 @@ void setup() {
     // Initialize SPIFFS and play animation
     if (SPIFFS.begin(true)) {
         Serial.println("SPIFFS Mounted successfully.");
-        showAnimatedLogo();
+        if (SPIFFS.exists("/welcome_0.jpg")) {
+            showWelcomeAnimation();
+        } else {
+            Serial.println("Welcome animation frames not found in SPIFFS.");
+            showWelcomeLogo();
+        }
     } else {
         Serial.println("An Error has occurred while mounting SPIFFS");
         showWelcomeLogo(); // Fallback to static logo
@@ -296,28 +367,15 @@ void setup() {
     // Initialize the motor driver pins
     setupMAX1508();
 
+    // Initialize Surgical LED Illumination (Pin 17) with saved brightness
+    ledBrightness = preferences.getUChar("ledBri", 0);
+    setupLED();
+
     // Setup button pins with internal pull-ups
     pinMode(BTN_LEFT, INPUT_PULLUP);
     pinMode(BTN_RIGHT, INPUT_PULLUP);
     
-    // --- Perform Initial WiFi Scan at Startup ---
-    Serial.println("Performing initial WiFi scan...");
-    WiFi.mode(WIFI_AP_STA); // Ensure correct mode for scanning
-    int n = WiFi.scanNetworks(); // Synchronous scan
-    Serial.printf("Initial scan found %d networks.\n", n);
-    if (n > 0) {
-        String json = "[";
-        for (int i = 0; i < n; ++i) {
-            if (i > 0) json += ",";
-            json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
-        }
-        json += "]";
-        initialScanResultsJson = json;
-    }
-    WiFi.scanDelete(); // Free memory after caching results
-    // --- End Initial Scan ---
-
-    delay(500); // Breathe before WiFi
+    // Setup Web Server and Access Point immediately (non-blocking)
     setupWeb(); 
 
     // Initial sensor read to seed the EMA filter
@@ -342,14 +400,23 @@ void setup() {
     );
     Serial.println(F("Real-time telemetry and safety task launched on Core 0."));
 
-    // Synchronize timers to prevent immediate execution of loop logic
+    // Synchronize timers to current timestamp
+    lastInteractionTime = millis();
     lastUpdate = millis();
     lastScreenSwitch = millis();
+
+    // Immediately display the active Surgical Dashboard (eliminates the 5-second black screen)
+    updateUI();
+
+    // Launch background asynchronous WiFi scan so startup is instantaneous
+    WiFi.scanNetworks(true);
+    scanState = SCANNING;
 }
 
 void enterDeepSleep() {
     Serial.println("Entering Deep Sleep to save battery...");
     setMotorSpeed(0);
+    ledcWrite(PWM_CHAN_LED, 0); // Turn off LED during deep sleep
     
     // Show visual message on OLED
     tft.fillScreen(TFT_BLACK);
@@ -370,13 +437,32 @@ void loop() {
         enterDeepSleep();
     }
 
+    dnsServer.processNextRequest(); // Handle Captive Portal DNS queries
     server.handleClient(); // Process web requests on Core 1
 
-    // Non-blocking timed loop. Executes approximately every 100ms on Core 1.
-    // Pinning UI/Buttons here allows the web server to handle loads smoothly.
-    const unsigned long LOOP_INTERVAL = 100;
+    // Check for pending animations triggered via web or physical buttons
+    if (pendingAnimation == ANIM_START) {
+        pendingAnimation = ANIM_NONE;
+        showStartOperationAnimation();
+        lastInteractionTime = millis();
+        lastScreenSwitch = millis();
+    } else if (pendingAnimation == ANIM_STOP) {
+        pendingAnimation = ANIM_NONE;
+        showStopOperationAnimation();
+        lastInteractionTime = millis();
+        lastScreenSwitch = millis();
+    } else if (pendingAnimation == ANIM_REPORT) {
+        pendingAnimation = ANIM_NONE;
+        showReportAnimation();
+        lastInteractionTime = millis();
+        lastScreenSwitch = millis();
+    }
+
+    // Dynamic UI interval: fast (30ms ~33 FPS) during screensaver for smooth animation, 100ms during normal operation
+    bool inScreensaver = (!inMenuMode && !systemEnabled && abs(motorSpeed) <= 10 && (millis() - lastInteractionTime > 15000));
+    const unsigned long LOOP_INTERVAL = inScreensaver ? 30 : 100;
     if (millis() - lastUpdate >= LOOP_INTERVAL) {
-        lastUpdate += LOOP_INTERVAL; // Move the timer forward by a fixed interval
+        lastUpdate = millis(); // Refresh timestamp for dynamic interval
 
         // --- Robust WiFi Status Handling ---
         static unsigned long lastWifiCheck = 0;
@@ -409,9 +495,20 @@ void loop() {
             if (scanResult >= 0) {
                 Serial.printf("Scan complete. %d networks found.\n", scanResult);
                 scanState = SCAN_COMPLETE;
-                // Restart the AP immediately so the client can reconnect
-                WiFi.softAP(ssid_ap, pass_ap);
-                Serial.println("AP restarted at: " + WiFi.softAPIP().toString());
+                if (scanResult > 0) {
+                    String json = "[";
+                    for (int i = 0; i < scanResult; ++i) {
+                        if (i > 0) json += ",";
+                        json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+                    }
+                    json += "]";
+                    initialScanResultsJson = json;
+                }
+                WiFi.scanDelete(); // Free memory after caching results
+                // Ensure AP is active with saved password
+                String current_ap_pass = preferences.getString("ap_pass", pass_ap);
+                WiFi.softAP(ssid_ap, current_ap_pass.c_str());
+                Serial.println("AP active at: " + WiFi.softAPIP().toString());
             } else {
                 Serial.println("...scanning...");
             }
@@ -433,7 +530,12 @@ void handleButtons() {
     bool btnLeftState = (digitalRead(BTN_LEFT) == LOW);
     bool btnRightState = (digitalRead(BTN_RIGHT) == LOW);
 
-    // --- 1. Check for Dual Long Press (Menu Mode Toggle) ---
+    // Refresh interaction timer on any physical button press
+    if (btnLeftState || btnRightState) {
+        lastInteractionTime = millis();
+    }
+
+    // --- 1. Check for Dual Long Press (Menu Mode Toggle) or Dual Quick Press (LED Toggle) ---
     if (btnLeftState && btnRightState) {
         if (bothButtonsPressTime == 0) {
             bothButtonsPressTime = millis();
@@ -445,6 +547,20 @@ void handleButtons() {
         }
         return; // Prioritize dual press, skip single button logic
     } else {
+        if (bothButtonsPressTime > 0 && !bothButtonsLongPressHandled && !inMenuMode && (millis() - bothButtonsPressTime > DEBOUNCE_DELAY)) {
+            // Dual short press: toggle LED on/off
+            if (ledBrightness == 0) {
+                setLEDBrightness(255);
+                displayWebConfirmation("LED: 100%");
+            } else {
+                setLEDBrightness(0);
+                displayWebConfirmation("LED: OFF");
+            }
+            btnLeftPressTime = 0;
+            btnRightPressTime = 0;
+            btnLeftLongPressHandled = true;
+            btnRightLongPressHandled = true;
+        }
         bothButtonsPressTime = 0;
         bothButtonsLongPressHandled = false;
     }
@@ -463,8 +579,8 @@ void handleButtons() {
             }
         } else if (btnLeftPressTime > 0) {
             if (!btnLeftLongPressHandled && (millis() - btnLeftPressTime > DEBOUNCE_DELAY)) {
-                // Short press moves selection down
-                currentMenuItem = (currentMenuItem + 1) % 5;
+                // Short press moves selection down across 6 items
+                currentMenuItem = (currentMenuItem + 1) % 6;
             }
             btnLeftPressTime = 0; btnLeftLongPressHandled = false;
         }
@@ -483,20 +599,30 @@ void handleButtons() {
                     calibrationNeeded = true;
                     displayWebConfirmation("Speed: " + String(webBaseSpeed));
                 } else if (currentMenuItem == 1) {
+                    // Adjust LED Brightness (OFF -> 25% -> 50% -> 75% -> 100% -> OFF)
+                    if (ledBrightness == 0) setLEDBrightness(64);
+                    else if (ledBrightness <= 64) setLEDBrightness(128);
+                    else if (ledBrightness <= 128) setLEDBrightness(192);
+                    else if (ledBrightness <= 192) setLEDBrightness(255);
+                    else setLEDBrightness(0);
+                    
+                    uint8_t pct = round((float)ledBrightness * 100.0f / 255.0f);
+                    displayWebConfirmation(ledBrightness > 0 ? ("LED: " + String(pct) + "%") : "LED: OFF");
+                } else if (currentMenuItem == 2) {
                     // Toggle oscillation mode
                     oscillatingMode = !oscillatingMode;
                     preferences.putBool("oscMode", oscillatingMode);
                     displayWebConfirmation(oscillatingMode ? "Mode: OSC" : "Mode: NORMAL");
-                } else if (currentMenuItem == 2) {
+                } else if (currentMenuItem == 3) {
                     // Toggle Motor Version (1 vs 2)
                     uint8_t newVer = (motorVersion == 1) ? 2 : 1;
                     setMotorVersion(newVer);
-                } else if (currentMenuItem == 3) {
+                } else if (currentMenuItem == 4) {
                     // Reset counter
                     penetrationCount = 0;
                     preferences.putUInt("pCnt", 0);
                     displayWebConfirmation("Reset Count");
-                } else if (currentMenuItem == 4) {
+                } else if (currentMenuItem == 5) {
                     // Exit Menu
                     inMenuMode = false;
                     displayWebConfirmation("Menu Closed");
@@ -556,7 +682,7 @@ void handleButtons() {
             if (btnLeftPressTime == 0) { // First detection
                 btnLeftPressTime = millis();
             } else if (!btnLeftLongPressHandled && (millis() - btnLeftPressTime > LONG_PRESS_DURATION)) {
-                // LONG PRESS ACTION: PAUSE OPERATION
+                // LONG PRESS ACTION: PAUSE OR STOP OPERATION
                 if (operationState == RUNNING) {
                     operationState = PAUSED;
                     operationTimeAccumulator += millis() - lastTimeCapture;
@@ -564,6 +690,13 @@ void handleButtons() {
                     systemEnabled = false; // Ensure motor is off
                     displayWebConfirmation("Operation Paused");
                     Serial.println("LEFT LONG PRESS: Operation Paused.");
+                } else if (operationState == PAUSED) {
+                    operationState = IDLE;
+                    systemEnabled = false;
+                    preferences.putUInt("pCnt", penetrationCount);
+                    displayWebConfirmation("Operation Stopped");
+                    Serial.println("LEFT LONG PRESS: Operation Stopped.");
+                    pendingAnimation = ANIM_STOP;
                 }
                 btnLeftLongPressHandled = true; // Mark as handled
             }
@@ -592,6 +725,7 @@ void handleButtons() {
                     systemEnabled = true; // Also enable the motor system
                     displayWebConfirmation("Operation Started");
                     Serial.println("RIGHT LONG PRESS: Operation Started.");
+                    pendingAnimation = ANIM_START;
                 } else if (operationState == PAUSED) { // Resume a paused operation
                     operationState = RUNNING;
                     lastTimeCapture = millis(); // Reset the timer for the new running phase
@@ -802,7 +936,11 @@ void handleGraftCounter() {
     // In oscillation mode, we can ignore the calibrationNeeded flag as the baseline is relatively stable.
     bool canCount = (oscillatingMode) ? true : !calibrationNeeded;
 
-    if (systemEnabled && abs(motorSpeed) > 50 && canCount && baselineCurrent > 0.05) {
+    // In oscillation mode, ignore any current spikes during the direction change transient (blanking period of 400ms)
+    bool isTransitioning = (oscillatingMode && (millis() - lastOscillationSwitch < 400));
+
+    // Lowered baselineCurrent threshold from 0.05 to 0.005 (5mA) to support low-power/efficient N20 motors
+    if (systemEnabled && abs(motorSpeed) > 50 && canCount && baselineCurrent > 0.005 && !isTransitioning) {
         float dynamicSpikeThreshold = baselineCurrent + penetrationOffset;
         float dynamicFallBackThreshold = dynamicSpikeThreshold - penetrationHysteresis;
 
@@ -845,13 +983,19 @@ void handleGraftCounter() {
 }
 
 void updateUI() {
-    if (millis() - lastScreenSwitch > screenSwitchTime) {
-        int maxScreens = 5; // 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics
-        if (patientName != "N/A") {
-            maxScreens = 6; // Add patient screen (index 5) if a patient is selected
+    // Only auto-cycle screens if the motor is NOT running to allow continuous surgery monitoring
+    if (!systemEnabled || abs(motorSpeed) <= 10) {
+        if (millis() - lastScreenSwitch > screenSwitchTime) {
+            int maxScreens = 5; // 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics
+            if (patientName != "N/A") {
+                maxScreens = 6; // Add patient screen (index 5) if a patient is selected
+            }
+            currentScreen = (currentScreen + 1) % maxScreens;
+            lastScreenSwitch = millis();
         }
-        currentScreen = (currentScreen + 1) % maxScreens;
-        lastScreenSwitch = millis();
+    } else {
+        // Lock screen to 0 (Surgical Drive Dashboard) when motor is actively running
+        currentScreen = 0;
     }
 
     String displayIP = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();

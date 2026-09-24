@@ -25,6 +25,7 @@ FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
 TFT Display      | -    | -                | Internally connected via SPI
 MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via MAX1508 OUT1
 MOTOR_IN2 (PWM)  | 27   | White (Motor -)  | Controls Speed/Dir via MAX1508 OUT2
+Surgical LED PWM | 17   | -                | High-frequency 5kHz LED PWM (LEDC Chan 2)
 INA219 SDA (Volt) | 36   | -                | Digital I2C Input (1V out = 5V in) - I2C_SDA
 INA219 SCL (Amp)  | 32   | -                | Digital I2C Input (1V out = 1A in) - I2C_SCL
 ADC Enable Pin   | 14   | -                | Enables Internal battery divider

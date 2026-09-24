@@ -14,8 +14,8 @@
 #include <Arduino.h>
 
 // Pins configuration for DRV8833
-#define MOTOR_IN1     13 // ESP32 GPIO connected to DRV8833 IN1 (PWM for speed)
-#define MOTOR_IN2     12 // ESP32 GPIO connected to DRV8833 IN2 (Digital for direction)
+#define MOTOR_IN1     16 // ESP32 GPIO connected to DRV8833 IN1 (PWM for speed)
+#define MOTOR_IN2     13 // ESP32 GPIO connected to DRV8833 IN2 (Digital for direction)
 
 // PWM Settings for ESP32's LEDC peripheral
 #define PWM_FREQ      5000 // PWM frequency in Hz (e.g., 5000 Hz for DC motors)

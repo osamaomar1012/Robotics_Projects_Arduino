@@ -24,6 +24,7 @@ BOOT Button (L)  | 0    | -                | Left Button - Active LOW (BOOT)
 KEY Button (R)   | 14   | -                | Right Button - Active LOW
 MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via DRV8833 OUT1
 MOTOR_IN2 (PWM)  | 12   | White (Motor -)  | Controls Speed/Dir via DRV8833 OUT2
+Surgical LED PWM | 18   | -                | High-frequency 5kHz LED PWM (LEDC Chan 2)
 INA219 SDA (Volt) | 1    | -                | Digital I2C Input (1V out = 5V in) - I2C_SDA
 INA219 SCL (Amp)  | 2    | -                | Digital I2C Input (1V out = 1A in) - ADC1_CH1
 Internal VBSCL    | 4    | -                | Onboard battery divider - ADC1_CH3

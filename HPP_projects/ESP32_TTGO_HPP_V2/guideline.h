@@ -62,8 +62,8 @@ operator to manage patients, control the motor, monitor system status, configure
 advanced settings, and generate post-operative reports.
 
 To access it, connect your device (phone or computer) to the WiFi network
-named "HPP_CONTROL_V1" (password: 12345678) and navigate to http://192.168.4.1
-in your web browser.
+    named "HPP_CONTROL_V2" (password: 12345678) and navigate to http://elbaseet.local
+    in your web browser.
 
 ================================================================================
 
@@ -466,6 +466,7 @@ depending on whether the device is in "Normal Operation", "Oscillation Mode", or
 
 *   **Long Press (Both Buttons):** Toggles into **Local Menu Mode**.
     A confirmation "Menu Opened" or "Menu Closed" message will appear on the screen.
+*   **Quick Press (Both Buttons):** Instantly toggles the **Surgical LED Illumination** (Pin 17) ON or OFF.
 
 --- [ LOCAL MENU MODE CONTROLS ] ---
 When Local Menu Mode is active, the normal operation of the buttons is suspended.
@@ -477,19 +478,21 @@ MENU MODE ASCII VISUALIZSCLION:
   | SYSTEM MENU             [|||||]  |
   |----------------------------------|
   | > 1. Speed: 200                  |
-  |   2. Mode: NORMAL                |
-  |   3. Hardw: V1-Enc               |
-  |   4. Reset Grafts                |
-  |   5. Exit Menu                   |
+  |   2. LED Light: 100%             |
+  |   3. Mode: NORMAL                |
+  |   4. Hardw: V1-Enc               |
+  |   5. Reset Grafts                |
+  |   6. Exit Menu                   |
   +----------------------------------+
 
 *   **BUTTON A (Scroll Option)**
-    -   **Short Press:** Scroll down through the menu items (Speed -> Mode -> Hardware -> Reset -> Exit).
+    -   **Short Press:** Scroll down through the menu items (Speed -> LED Light -> Mode -> Hardware -> Reset -> Exit).
     -   **Long Press:** Save and Exit Menu Mode.
 
 *   **BUTTON B (Select/Adjust Value)**
     -   **Short Press:** Triggers or modifies the highlighted option:
         *   Speed: Increments motor speed by 10 (wraps 50 -> 250 -> 50).
+        *   LED Light: Cycles PWM duty cycle (OFF -> 25% -> 50% -> 75% -> 100% -> OFF) on Pin 17.
         *   Mode: Toggles between standard forward rotation (NORMAL) and CCW/CW OSCILLSCLE.
         *   Hardw: Toggles between Version 1 (Motor + Encoder) and Version 2 (Motor without Encoder).
         *   Reset Grafts: Resets the follicle count to 0 in persistent memory.

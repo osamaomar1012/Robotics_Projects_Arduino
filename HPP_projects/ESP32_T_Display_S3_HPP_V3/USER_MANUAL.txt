@@ -54,6 +54,10 @@ ONBOARD TELEMETRY PINS:
 *   Power Gate (Peripheral Power)->  LILYGO T-Display-S3 GPIO 15 (Must be kept HIGH!)
 *   Internal VBSCL (ADC Input)    ->  LILYGO T-Display-S3 GPIO 4  (ADC1 Channel 3)
 
+SURGICAL LED ILLUMINATION (PIN 18):
+*   LED Control (PWM Channel 2)  ->  LILYGO T-Display-S3 GPIO 18 (5kHz flicker-free PWM, 0-255 duty cycle)
+*   Ground (Cathode)             ->  ESP32 GND (via current limiting resistor or LED driver)
+
 5. CORE SYSTEM FESCLURES
 -----------------------
 *   On-Device Local Menu Mode: Dual long-press of both buttons (BOOT on GPIO 0 and KEY on GPIO 14) for 1 second toggles 
@@ -79,26 +83,49 @@ ONBOARD TELEMETRY PINS:
 *   Low Battery Protection: Instantly halts motor if cell voltage < 3.2V.
 *   Engineering Debug Mode: Bypasses safety trips for bench-testing, showing full-screen warning.
 
-7. OPERSCLING INSTRUCTIONS
+7. OPERATING INSTRUCTIONS
 -------------------------
 
-A. INITIAL SETUP:
+A. INITIAL SETUP & STARTUP ANIMATION:
    1. Power on the device.
-   2. Connect your phone/tablet WiFi to AP: "HPP_CONTROL_V1" (Pass: 12345678).
-   3. Open browser to 192.168.4.1.
+   2. The high-definition Welcome Animation (70 frames) plays automatically on the TFT display.
+   3. Connect your phone/tablet WiFi to AP: "HPP_CONTROL_V1" (Pass: 12345678).
+   4. Open browser to http://elbaseet.local.
 
-B. SELECT MOTOR VERSION:
+B. OPERATION CONTROLS & ANIMATIONS:
+   *   START OPERATION:
+       - Web: Click "START OPERATION" button on the dashboard.
+       - Device: Long-press Right Button (1 second) while in IDLE state.
+       - Effect: Displays the Hair Transplant Animation (68 frames) on the TFT screen,
+         starts procedure timers, and transitions operation to RUNNING mode.
+   *   PAUSE / RESUME OPERATION:
+       - Pause: Long-press Left Button while RUNNING to pause timer and motor.
+       - Resume: Long-press Right Button while PAUSED to resume procedure.
+   *   STOP OPERATION:
+       - Web: Click "STOP OPERATION" button on the dashboard.
+       - Device: Long-press Left Button while in PAUSED state.
+       - Effect: Displays the Hair Animation (60 frames) on the TFT screen,
+         halts the motor, saves the final graft count and JSON report to SPIFFS.
+   *   GENERATE REPORT:
+       - Web: Click "GENERATE REPORT" or open report preview.
+       - Effect: Displays the Report Animation (25 frames) on the TFT screen,
+         providing visual confirmation of report compilation and storage.
+   *   FAST ANIMATED SCREENSAVER:
+       - When idle for >15 seconds, the TFT screen enters screensaver mode,
+         smoothly cycling through the hair animation at ~33 FPS alongside real-time clock and battery status.
+
+C. SELECT MOTOR VERSION:
    1. Go to "Settings" on the Web GUI or enter the Local Menu on the device.
    2. Set Motor Hardware Version: "Version 1" if utilizing the N20 encoder motor; "Version 2" if utilizing a standard motor.
    3. On Version 1, adjust "Speed Dip (%)" sensitivity as needed (Default 10%).
 
-C. CALIBRSCLION:
+D. CALIBRATION:
    Calibration ensures the system establishes correct air-load idle parameters.
    1. Hold the surgical pen in the air.
-   2. Select "RE-CALIBRSCLE" from the Web GUI or Local Menu.
+   2. Select "RE-CALIBRATE" from the Web GUI or Local Menu.
    3. The motor will spin for 2 seconds to establish baseline current and baseline RPM. Do NOT touch the skin during this time.
 
-D. INTEGRSCLED WEB STSCLUS ROTSCLION:
+E. INTEGRATED WEB STATUS ROTATION:
    Web dashboard spinning gear icon rotates at a speed proportional to active motor speed, coming to a complete halt when the motor is stopped.
 
 8. CONFIGURSCLION PARAMETERS (SETTINGS)

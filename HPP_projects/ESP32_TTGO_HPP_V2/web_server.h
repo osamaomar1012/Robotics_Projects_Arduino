@@ -12,15 +12,18 @@
 #include <Preferences.h>
 #include <FS.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
+#include <DNSServer.h>
 
 
 // WiFi Credentials - Update these for your network
 const char* ssid_sta = "";
 const char* pass_sta = "";
-const char* ssid_ap  = "HPP_CONTROL_V1";
+const char* ssid_ap  = "HPP_CONTROL_V2";
 const char* pass_ap  = "12345678";
 
 WebServer server(80);
+DNSServer dnsServer;
 
 // Externs to link with main project globals
 extern int16_t motorSpeed;
@@ -31,6 +34,8 @@ extern uint32_t estimatedRPM, penetrationCount;
 extern uint8_t batteryPercent, webBaseSpeed, motorVersion, currentMenuItem;
 extern void setMotorVersion(uint8_t version);
 enum OperationState { IDLE, RUNNING, PAUSED };
+enum AnimationTrigger { ANIM_NONE, ANIM_START, ANIM_STOP, ANIM_REPORT };
+extern volatile AnimationTrigger pendingAnimation;
 enum ScanState { SCAN_IDLE, SCAN_REQUESTED, SCANNING, SCAN_COMPLETE }; extern volatile ScanState scanState;
 extern String initialScanResultsJson;
 extern OperationState operationState;
@@ -43,6 +48,8 @@ extern bool systemEnabled, forwardDirection, safetyTripped, lowBatteryTripped, d
 extern unsigned long operationTimeAccumulator, lastTimeCapture; extern uint32_t pauseCount;
 extern uint32_t oscillationDuration;
 extern uint32_t oscillationDurationCW, oscillationDurationCCW; extern Preferences preferences;
+extern uint8_t ledBrightness;
+extern void setLEDBrightness(uint8_t brightness);
 extern void displayWebConfirmation(String msg); // Function to display confirmation on OLED
 extern String getFormattedDate(); // Function to get date from NTP
 
@@ -103,7 +110,7 @@ const char WIFI_HTML[] PROGMEM = R"=====(
     <script>
         window.onload = function() { loadInitialScan(); }; // Load cached results on page load
         function scan() {
-            document.getElementById('networks').innerHTML = "<p style='color:#f39c12; font-weight:bold;'>Scanning...<br><span style='font-size:0.8em; font-weight:normal;'>Your phone will disconnect for a moment. Please wait up to 10 seconds for results. If the page freezes, reconnect to the 'HPP_CONTROL_V1' WiFi network.</span></p>";
+            document.getElementById('networks').innerHTML = "<p style='color:#f39c12; font-weight:bold;'>Scanning...<br><span style='font-size:0.8em; font-weight:normal;'>Your phone will disconnect for a moment. Please wait up to 10 seconds for results. If the page freezes, reconnect to the 'HPP_CONTROL_V2' WiFi network.</span></p>";
             // Use a two-step scan process for reliability
             fetch('/scan').then(() => {
                 // Wait for the scan to complete and the AP to restart
@@ -221,6 +228,10 @@ const char READINGS_HTML[] PROGMEM = R"=====(
             <div id="calMsg" style="color: #f39c12; display:none; margin-top: 10px;">CALIBRATING...</div>
         </div>
         <div class="card">
+            <div><div class="label">LED ILLUMINATION (PIN 17)</div><div id="ledDiag" class="value">0%</div></div>
+            <div><div class="label">LED PWM DUTY</div><div id="ledPwm" class="value">0 / 255</div></div>
+        </div>
+        <div class="card">
             <div><div class="label">WiFi MODE</div><div id="wifi" class="value">-</div></div>
             <div><div class="label">IP ADDR</div><div id="ip" class="value">-</div></div>
         </div>
@@ -297,6 +308,10 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 document.getElementById('ip').innerText = data.ip;
                 document.getElementById('calMsg').style.display = data.calib ? 'block' : 'none';
                 document.getElementById('calBtn').style.display = data.calib ? 'none' : 'inline-block';
+                if (document.getElementById('ledDiag')) {
+                    document.getElementById('ledDiag').innerText = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255)) + '%';
+                    document.getElementById('ledPwm').innerText = data.led + ' / 255';
+                }
 
                 // Append and roll the telemetry arrays
                 vData.push(data.v);
@@ -465,6 +480,14 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
                 <button class="btn" style="background: #7c3aed; width: auto;" onclick="set('sleepTime', document.getElementById('slp').value)">SET</button>
                 <div style="font-size: 0.75em; color: #94a3b8; margin-top: 5px;">Range: 10 to 15 minutes.</div>
             </div>
+            <div class="card">
+                <div class="label">Surgical LED Brightness (Pin 17)</div>
+                <div class="flex-row">
+                    <input type="range" min="0" max="100" value="0" class="slider" id="ledCfgSlider" oninput="document.getElementById('ledCfgVal').innerText=this.value+'%'">
+                    <span id="ledCfgVal" class="value" style="margin-left: 10px; font-size: 1.1em;">0%</span>
+                </div>
+                <button class="btn" style="background: #7c3aed; width: auto; margin-top: 10px;" onclick="set('led_pct', document.getElementById('ledCfgSlider').value)">APPLY BRIGHTNESS</button>
+            </div>
         </div>
 
         <!-- Motor Config Submenu -->
@@ -486,8 +509,8 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
             <div class="card">
                 <div class="label">Graft Sensitivity</div>
                 <div class="flex-row">
-                    <div><div class="label">Spike (A)</div><input type="number" id="po" step="0.01"></div>
-                    <div><div class="label">Hyst (A)</div><input type="number" id="ph" step="0.01"></div>
+                    <div><div class="label">Spike (A)</div><input type="number" id="po" step="0.001"></div>
+                    <div><div class="label">Hyst (A)</div><input type="number" id="ph" step="0.001"></div>
                 </div>
                 <div id="speedDipRow" class="flex-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
                     <div><div class="label">Speed Dip (%)</div><input type="number" id="sd" step="0.5" min="1" max="50"></div>
@@ -598,6 +621,11 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
                     document.getElementById('ph').value = data.ph;
                     document.getElementById('sd').value = data.spdDip;
                     document.getElementById('motVer').value = data.motVer;
+                    if (document.getElementById('ledCfgSlider')) {
+                        let lval = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
+                        document.getElementById('ledCfgSlider').value = lval;
+                        document.getElementById('ledCfgVal').innerText = lval + '%';
+                    }
                 }
                 
                 document.getElementById('speedDipRow').style.display = (data.motVer === 1) ? 'flex' : 'none';
@@ -1170,10 +1198,10 @@ const char OPERATION_HTML[] PROGMEM = R"=====(
         </div>
         <div class="card">
             <div class="flex-row">
-                <div><div class="label">SETPOINT</div><div id="speedVal" class="value">0</div></div>
+                <div><div class="label">SETPOINT</div><div id="speedVal" class="value">0%</div></div>
                 <div><div class="label">ACTUAL RPM</div><div id="rpm" class="value">0</div></div>
             </div>
-            <input type="range" min="0" max="255" value="200" class="slider" id="speedSlider" oninput="updateSpeed(this.value)">
+            <input type="range" min="0" max="100" value="78" class="slider" id="speedSlider" oninput="updateSpeed(this.value)">
             <button class="btn btn-on" onclick="sendCmd('power', 'on')">ON</button>
             <button class="btn btn-off" onclick="sendCmd('power', 'off')">OFF</button>
             <button class="btn btn-dir" onclick="sendCmd('dir', 'toggle')">REVERSE</button>
@@ -1185,9 +1213,43 @@ const char OPERATION_HTML[] PROGMEM = R"=====(
                 <button id="modeOsc" class="btn" style="background: #475569;" onclick="sendCmd('mode', 'osc')">OSCILLATE</button>
             </div>
         </div>
+        <div class="card">
+            <div class="label">SURGICAL ILLUMINATION (PIN 17)</div>
+            <div class="flex-row" style="margin-bottom: 8px;">
+                <div><div class="label">BRIGHTNESS</div><div id="ledVal" class="value">0%</div></div>
+                <div><div class="label">STATUS</div><div id="ledStatus" class="value" style="color: #94a3b8;">OFF</div></div>
+            </div>
+            <input type="range" min="0" max="100" value="0" class="slider" id="ledSlider" oninput="updateLed(this.value)">
+            <div class="flex-row">
+                <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendLedPower('on')">ON</button>
+                <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendLedPower('off')">OFF</button>
+                <button class="btn" style="flex:1; padding: 10px; background: #f59e0b;" onclick="updateLed(50)">50%</button>
+                <button class="btn" style="flex:1; padding: 10px; background: #0ea5e9;" onclick="updateLed(100)">100%</button>
+            </div>
+        </div>
     </div>
     <script>
-        function updateSpeed(val) { document.getElementById('speedVal').innerText = val; sendCmd('speed', val); }
+        function updateSpeed(val) { 
+            let pwmVal = Math.round(val * 255 / 100);
+            document.getElementById('speedVal').innerText = val + '%'; 
+            sendCmd('speed', pwmVal); 
+        }
+        function updateLed(val) {
+            let pwm = Math.round(val * 255 / 100);
+            let ledValElem = document.getElementById('ledVal');
+            let ledSliderElem = document.getElementById('ledSlider');
+            let ledStatusElem = document.getElementById('ledStatus');
+            if (ledValElem) ledValElem.innerText = val + '%';
+            if (ledSliderElem) ledSliderElem.value = val;
+            if (ledStatusElem) {
+                ledStatusElem.innerText = (val > 0) ? 'ON' : 'OFF';
+                ledStatusElem.style.color = (val > 0) ? '#38bdf8' : '#94a3b8';
+            }
+            sendCmd('led', pwm);
+        }
+        function sendLedPower(state) {
+            updateLed(state === 'on' ? 100 : 0);
+        }
         function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
         function stopOperation() {
             if(confirm('This will stop the operation. Proceed?')) {
@@ -1259,6 +1321,21 @@ const char INDEX_HTML[] PROGMEM = R"=====(
             </div>
         </div>
 
+        <div class="card">
+            <div class="label">SURGICAL ILLUMINATION (PIN 17)</div>
+            <div class="flex-row" style="margin-bottom: 8px;">
+                <div><div class="label">BRIGHTNESS</div><div id="ledVal" class="value">0%</div></div>
+                <div><div class="label">STATUS</div><div id="ledStatus" class="value" style="color: #94a3b8;">OFF</div></div>
+            </div>
+            <input type="range" min="0" max="100" value="0" class="slider" id="ledSlider" oninput="updateLed(this.value)" style="margin: 15px 0;">
+            <div class="flex-row">
+                <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendLedPower('on')">ON</button>
+                <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendLedPower('off')">OFF</button>
+                <button class="btn" style="flex:1; padding: 10px; background: #f59e0b;" onclick="updateLed(50)">50%</button>
+                <button class="btn" style="flex:1; padding: 10px; background: #0ea5e9;" onclick="updateLed(100)">100%</button>
+            </div>
+        </div>
+
         <div class="nav-grid">
             <a href="/patientinfo" class="btn btn-dir" style="text-decoration:none; background: #0ea5e9; grid-column: 1 / span 2;">Patient Management</a>
             <a href="/config" class="btn btn-dir" style="text-decoration:none; background: #334155; box-shadow: none; grid-column: 1 / span 2;">Settings</a>
@@ -1271,6 +1348,22 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
     <script>
         function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
+        function updateLed(val) {
+            let pwm = Math.round(val * 255 / 100);
+            let ledValElem = document.getElementById('ledVal');
+            let ledSliderElem = document.getElementById('ledSlider');
+            let ledStatusElem = document.getElementById('ledStatus');
+            if (ledValElem) ledValElem.innerText = val + '%';
+            if (ledSliderElem) ledSliderElem.value = val;
+            if (ledStatusElem) {
+                ledStatusElem.innerText = (val > 0) ? 'ON' : 'OFF';
+                ledStatusElem.style.color = (val > 0) ? '#38bdf8' : '#94a3b8';
+            }
+            sendCmd('led', pwm);
+        }
+        function sendLedPower(state) {
+            updateLed(state === 'on' ? 100 : 0);
+        }
         function startOperation() {
             sendCmd('start_op', '1');
             setTimeout(() => { window.location.href = '/operation'; }, 500); // Redirect to the new operation page
@@ -1309,6 +1402,19 @@ const char INDEX_HTML[] PROGMEM = R"=====(
                     document.getElementById('patientCard').style.display = 'none';
                 }
 
+                // Surgical LED Slider Telemetry Sync
+                let ledSlider = document.getElementById('ledSlider');
+                if (ledSlider && document.activeElement !== ledSlider) {
+                    let ledPct = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
+                    ledSlider.value = ledPct;
+                    document.getElementById('ledVal').innerText = ledPct + '%';
+                    let st = document.getElementById('ledStatus');
+                    if (st) {
+                        st.innerText = (data.led > 0) ? 'ON' : 'OFF';
+                        st.style.color = (data.led > 0) ? '#38bdf8' : '#94a3b8';
+                    }
+                }
+
                 // Operation State Buttons
                 let btnStart = document.getElementById('btnStart');
                 let btnPause = document.getElementById('btnPause');
@@ -1340,8 +1446,22 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 </html>
 )=====";
 
-void handleRoot() { server.send(200, "text/html", INDEX_HTML); }
+bool checkAuth() {
+    String current_ap_pass = preferences.getString("ap_pass", pass_ap);
+    if (!server.authenticate("admin", current_ap_pass.c_str())) {
+        server.requestAuthentication();
+        return false;
+    }
+    return true;
+}
+
+void handleRoot() { 
+    if (!checkAuth()) return;
+    server.send(200, "text/html", INDEX_HTML); 
+}
+
 void handleOperation() { 
+    if (!checkAuth()) return;
     // Before showing the operation page, ensure an operation is actually running.
     // If not, redirect back to the main page.
     if (operationState != RUNNING && operationState != PAUSED) {
@@ -1359,18 +1479,35 @@ void handleOperation() {
                 document.getElementById('rpm').innerText = data.rpm;
                 document.getElementById('penCount').innerText = data.cnt;
                 if (document.activeElement.id !== 'speedSlider') {
-                    document.getElementById('speedSlider').value = data.set;
-                    document.getElementById('speedVal').innerText = data.set;
+                    let percentVal = Math.round(data.set * 100 / 255);
+                    document.getElementById('speedSlider').value = percentVal;
+                    document.getElementById('speedVal').innerText = percentVal + '%';
                 }
-                // ... (add other telemetry updates here as needed, like button states) ...
+                let ledSlider = document.getElementById('ledSlider');
+                if (ledSlider && document.activeElement !== ledSlider) {
+                    let ledPct = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
+                    ledSlider.value = ledPct;
+                    document.getElementById('ledVal').innerText = ledPct + '%';
+                    let st = document.getElementById('ledStatus');
+                    if (st) {
+                        st.innerText = (data.led > 0) ? 'ON' : 'OFF';
+                        st.style.color = (data.led > 0) ? '#38bdf8' : '#94a3b8';
+                    }
+                }
             });
         }, 200);
     )=====";
     page.replace("</script>", script + "</script>");
     server.send(200, "text/html", page);
 }
-void handleConfig() { server.send(200, "text/html", CONFIG_HTML); }
-void handleReadings() { server.send(200, "text/html", READINGS_HTML); }
+void handleConfig() { 
+    if (!checkAuth()) return;
+    server.send(200, "text/html", CONFIG_HTML); 
+}
+void handleReadings() { 
+    if (!checkAuth()) return;
+    server.send(200, "text/html", READINGS_HTML); 
+}
 void handleSelectPatient();
 void handleGetPatientData();
 void handlePatientInfo();
@@ -1417,6 +1554,7 @@ String archiveProcessor(const String& var) {
 }
 
 void handleWifi() {
+    if (!checkAuth()) return;
     String pageContent = WIFI_HTML;
     String statusHtml = "";
     
@@ -1437,16 +1575,19 @@ void handleWifi() {
 }
 
 void handleInitialScanResults() {
+    if (!checkAuth()) return;
     server.send(200, "application/json", initialScanResultsJson);
 }
 
 void handleScan() {
+    if (!checkAuth()) return;
     // Trigger the scan state machine in the main loop
     scanState = SCAN_REQUESTED;
     server.send(200, "text/plain", "OK");
 }
 
 void handleScanResults() {
+    if (!checkAuth()) return;
     if (scanState != SCAN_COMPLETE) {
         server.send(200, "application/json", "[]"); // Scan not ready
         return;
@@ -1465,6 +1606,7 @@ void handleScanResults() {
 }
 
 void handleSaveWifi() {
+    if (!checkAuth()) return;
     if (server.hasArg("ssid")) {
         String s = server.arg("ssid");
         String p = server.arg("pass");
@@ -1480,11 +1622,12 @@ void handleSaveWifi() {
 }
 
 void handleTelemetry() {
+    if (!checkAuth()) return;
     String json = "{";
     json += "\"v\":" + String(batteryVoltage, 2) + ",";
     json += "\"v_int\":" + String(internalVoltage, 2) + ",";
     json += "\"chg\":" + String(isCharging ? 1 : 0) + ",";
-    json += "\"i\":" + String(batteryCurrent, 2) + ",";
+    json += "\"i\":" + String(batteryCurrent, 3) + ",";
     json += "\"p\":" + String(batteryPower, 2) + ",";
     json += "\"rpm\":" + String(estimatedRPM) + ",";
     json += "\"cnt\":" + String(penetrationCount) + ",";
@@ -1501,14 +1644,16 @@ void handleTelemetry() {
     json += "\"oscDur\":" + String(oscillationDuration) + ",";
     json += "\"oscDurCw\":" + String(oscillationDurationCW) + ",";
     json += "\"oscDurCcw\":" + String(oscillationDurationCCW) + ",";
-    json += "\"po\":" + String(penetrationOffset, 2) + ",";
-    json += "\"ph\":" + String(penetrationHysteresis, 2) + ",";
+    json += "\"po\":" + String(penetrationOffset, 3) + ",";
+    json += "\"ph\":" + String(penetrationHysteresis, 3) + ",";
     json += "\"spdDip\":" + String(speedDipThresholdPercent, 1) + ",";
     json += "\"baseRPM\":" + String(baselineRPM, 1) + ",";
     json += "\"calib\":" + String(calibrationNeeded ? 1 : 0) + ",";
-    json += "\"spikeT\":" + String(baselineCurrent + penetrationOffset, 2) + ",";
-    json += "\"exitT\":" + String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 2) + ",";
-    json += "\"baseI\":" + String(baselineCurrent, 2) + ",";
+    json += "\"spikeT\":" + String(baselineCurrent + penetrationOffset, 3) + ",";
+    json += "\"exitT\":" + String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 3) + ",";
+    json += "\"baseI\":" + String(baselineCurrent, 3) + ",";
+    json += "\"led\":" + String(ledBrightness) + ",";
+    json += "\"led_pct\":" + String((int)round(ledBrightness * 100.0f / 255.0f)) + ",";
     json += "\"wifi_mode\":\"" + String(WiFi.status() == WL_CONNECTED ? "STA" : "AP") + "\",";
     json += "\"ip\":\"" + WiFi.localIP().toString() + "\"";
     json += ",\"opTime\":" + String(operationTimeAccumulator);
@@ -1535,6 +1680,7 @@ void handleControl() {
             pauseCount = 0;
             lastTimeCapture = millis();
             displayWebConfirmation("Operation Started");
+            pendingAnimation = ANIM_START;
         }
     }
     if (cmd == "pause_op") {
@@ -1604,6 +1750,27 @@ void handleControl() {
         preferences.putFloat("spdDip", speedDipThresholdPercent);
         displayWebConfirmation("Speed Dip: " + val + "%");
     }
+    if (cmd == "led" || cmd == "led_bri") {
+        int b = constrain(val.toInt(), 0, 255);
+        setLEDBrightness((uint8_t)b);
+        uint8_t pct = round((float)ledBrightness * 100.0f / 255.0f);
+        displayWebConfirmation(ledBrightness > 0 ? ("LED: " + String(pct) + "%") : "LED: OFF");
+    }
+    if (cmd == "led_pct") {
+        int p = constrain(val.toInt(), 0, 100);
+        uint8_t b = (uint8_t)round(p * 255.0f / 100.0f);
+        setLEDBrightness(b);
+        displayWebConfirmation(ledBrightness > 0 ? ("LED: " + String(p) + "%") : "LED: OFF");
+    }
+    if (cmd == "led_power") {
+        if (val == "on") {
+            setLEDBrightness(255);
+            displayWebConfirmation("LED: 100%");
+        } else {
+            setLEDBrightness(0);
+            displayWebConfirmation("LED: OFF");
+        }
+    }
     if (cmd == "motVer") {
         uint8_t ver = val.toInt();
         setMotorVersion(ver);
@@ -1648,6 +1815,7 @@ void handleControl() {
         penetrationHysteresis = 0.02;
         penetrationCount = 0;
         debugMode = false;
+        setLEDBrightness(0);
 
         // Save defaults to NVM
         preferences.putFloat("maxCurr", 2.5);
@@ -1658,6 +1826,7 @@ void handleControl() {
         preferences.putFloat("penHyst", 0.02);
         preferences.putUInt("pCnt", 0);
         preferences.putBool("debug", false);
+        preferences.putUChar("ledBri", 0);
         preferences.putString("sta_ssid", ssid_sta);
         preferences.putString("sta_pass", pass_sta);
         preferences.remove("ap_pass"); // Reset AP password to default
@@ -1679,6 +1848,7 @@ void handleControl() {
         systemEnabled = false;
         preferences.putUInt("pCnt", penetrationCount); // Save final count
         displayWebConfirmation("Operation Stopped");
+        pendingAnimation = ANIM_STOP;
 
         // --- Automatically save the report ---
         StaticJsonDocument<512> doc;
@@ -1695,7 +1865,12 @@ void handleControl() {
         String pNameSanitized = patientName;
         pNameSanitized.replace(" ", "_");
         if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
-        String filename = "/reports/" + pNameSanitized + "_" + String(millis()) + ".json";
+        
+        preferences.begin("hpp_v1", false);
+        uint32_t repCount = preferences.getUInt("repCount", 1);
+        String filename = "/reports/" + pNameSanitized + "_" + String(repCount) + ".json";
+        preferences.putUInt("repCount", repCount + 1);
+        preferences.end();
 
         fs::File file = SPIFFS.open(filename, FILE_WRITE);
         if (file) {
@@ -1725,7 +1900,12 @@ void handleControl() {
         String pNameSanitized = patientName;
         pNameSanitized.replace(" ", "_"); // Sanitize spaces
         if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
-        String filename = "/reports/" + pNameSanitized + "_" + String(millis()) + ".json";
+        
+        preferences.begin("hpp_v1", false);
+        uint32_t repCount = preferences.getUInt("repCount", 1);
+        String filename = "/reports/" + pNameSanitized + "_" + String(repCount) + ".json";
+        preferences.putUInt("repCount", repCount + 1);
+        preferences.end();
 
         // 3. Write the JSON file to SPIFFS
         fs::File file = SPIFFS.open(filename, FILE_WRITE);
@@ -1738,6 +1918,7 @@ void handleControl() {
             file.close();
             server.send(200, "text/plain", filename.substring(filename.lastIndexOf('/') + 1));
             Serial.println("Report saved to: " + filename);
+            pendingAnimation = ANIM_REPORT;
         }
     }
     if (cmd == "delReport") {
@@ -1807,6 +1988,7 @@ void handleControl() {
 }
 
 void handleArchive() {
+    if (!checkAuth()) return;
     String list = "";
     fs::File root = SPIFFS.open("/reports");
     fs::File file = root.openNextFile();
@@ -1858,6 +2040,7 @@ String b64_encode(const uint8_t* data, size_t length) {
 }
 
 void handleViewReport() {
+    if (!checkAuth()) return;
     if (!server.hasArg("file")) {
         server.send(400, "text/plain", "Bad Request: Missing file argument.");
         return;
@@ -1892,6 +2075,7 @@ void handleViewReport() {
     pauseCount = doc["pauses"].as<uint32_t>();
     operationTimeAccumulator = doc["opTime"].as<unsigned long>() * 1000; // Stored as seconds
     server.arg("date") = doc["date"].as<String>();
+    pendingAnimation = ANIM_REPORT;
 
     // Read template from SPIFFS
     fs::File templateFile = SPIFFS.open("/template/report.html", "r");
@@ -1933,6 +2117,7 @@ void handleViewReport() {
 }
 
 void handlePatientInfo() {
+    if (!checkAuth()) return;
     // 1. Scan for unique patient names
     String patientListOptions = "<option value=''>-- Select a Patient --</option>";
     String uniquePatientFiles[50]; // Array to hold one file for each unique patient
@@ -1974,10 +2159,12 @@ void handlePatientInfo() {
 }
 
 void handleAddNewPatient() {
+    if (!checkAuth()) return;
     server.send(200, "text/html", ADD_PATIENT_HTML);
 }
 
 void handleSelectPatient() {
+    if (!checkAuth()) return;
     if (!server.hasArg("file")) {
         server.send(400, "text/plain", "Bad Request");
         return;
@@ -1999,10 +2186,12 @@ void handleSelectPatient() {
 }
 
 void handleEditor() {
+    if (!checkAuth()) return;
     server.send_P(200, "text/html", EDITOR_HTML);
 }
 
 void handleSaveTemplate() {
+    if (!checkAuth()) return;
     if (server.hasArg("content")) {
         fs::File templateFile = SPIFFS.open("/template/report.html", "w");
         if (templateFile) {
@@ -2022,6 +2211,7 @@ void handleSaveTemplate() {
 fs::File uploadFile;
 
 void handleUpload() {
+    if (!checkAuth()) return;
     HTTPUpload& upload = server.upload();
     if (upload.status == UPLOAD_FILE_START) {
         String filename = "/img/logo.jpg"; // Always overwrite the logo
@@ -2046,6 +2236,7 @@ void handleUpload() {
 #include "guideline.h"
 
 void handleHelp() {
+    if (!checkAuth()) return;
     // Serve the guideline book directly from PROGMEM flash memory
     // This avoids missing file issues if the SPIFFS data upload step was skipped
     server.send_P(200, "text/html", GUIDELINE_HTML);
@@ -2124,6 +2315,7 @@ void setupWeb() {
     server.on("/scanresults", handleScanResults);
     server.on("/savewifi", HTTP_POST, handleSaveWifi);
     server.on("/savepatient", HTTP_POST, []() {
+        if (!checkAuth()) return;
         patientName = server.arg("pName");
         patientAge = server.arg("pAge");
         patientNationality = server.arg("pNat");
@@ -2139,6 +2331,7 @@ void setupWeb() {
         server.send(302, "text/plain", "Patient Selected. Returning to Dashboard...");
     });
     server.on("/removepatient", []() {
+        if (!checkAuth()) return;
         if (!server.hasArg("name")) { server.send(400, "text/plain", "Bad Request"); return; } 
         String nameToRemove = server.arg("name");
         nameToRemove.replace(" ", "_");
@@ -2158,10 +2351,20 @@ void setupWeb() {
     server.on("/save_template", HTTP_POST, handleSaveTemplate);
     // The upload handler needs two arguments: a reply function on success, and the upload handler function
     server.on("/upload_logo", HTTP_POST, []() { server.send(200, "text/plain", "OK"); }, handleUpload); 
+
+    // 4. Initialize mDNS responder (makes web page accessible at http://elbaseet.local)
+    if (MDNS.begin("elbaseet")) {
+        Serial.println("mDNS responder started: http://elbaseet.local");
+        MDNS.addService("http", "tcp", 80);
+    } else {
+        Serial.println("Error setting up MDNS responder!");
+    }
+
     server.begin();
 }
 
 void handleGetPatientData() {
+    if (!checkAuth()) return;
     if (!server.hasArg("file")) {
         server.send(400, "text/plain", "Bad Request");
         return;

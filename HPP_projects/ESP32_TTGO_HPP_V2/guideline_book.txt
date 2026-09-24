@@ -33,7 +33,7 @@ operator to manage patients, control the motor, monitor system status, configure
 advanced settings, and generate post-operative reports.
 
 To access it, connect your device (phone or computer) to the WiFi network
-named "HPP_CONTROL_V1" (password: 12345678) and navigate to http://192.168.4.1
+named "HPP_CONTROL_V2" (password: 12345678) and navigate to http://elbaseet.local
 in your web browser.
 
 ================================================================================

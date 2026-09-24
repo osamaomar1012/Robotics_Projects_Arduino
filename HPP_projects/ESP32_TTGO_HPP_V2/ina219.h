@@ -35,8 +35,8 @@ inline void setupINA219() {
         // We will not halt here, but we'll print an error.
     } else {
         Serial.println("INA219 Initialized successfully.");
-        // Optional: To increase precision for lower current, you can set calibration:
-        // ina219.setCalibration_16V_400mA();
+        // Use 32V 1A calibration to increase current measurement resolution (40 µA resolution, 2.5x higher precision than default 2A)
+        ina219.setCalibration_32V_1A();
     }
 }
 
