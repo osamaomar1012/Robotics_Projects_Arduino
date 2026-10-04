@@ -27,35 +27,53 @@ The system can be configured to support two hardware variants of the surgical pe
     It estimates RPM mathematically from voltage and uses a pure current-spike
     algorithm to count grafts.
 
-3. HARDWARE SPECIFICSCLIONS
----------------------------
-*   MCU: LILYGO TTGO T-Display ESP32 (Integrated 1.14" ST7789 TFT screen)
-*   Motor Driver: MAX1508 / MX1508 Dual H-Bridge (Supports up to 1.5A continuous / 2A Peak)
-*   Sensor: INA219 High-Side Current/Voltage Sensor (3.0A Max)
-*   Power: 18650 Lithium-Ion Battery (3.7V - 4.2V)
-*   Actuator: JGA12-N20 Micro Metal Gear Motor (V1) or Standard DC Brushed Motor (V2)
+3. HARDWARE SPECIFICATIONS
+--------------------------
+*   Carrier Board: Metanoia Motor Control Carrier Board (Rev A, KiCad 10)
+*   MCU Module: LILYGO TTGO T-Display ESP32 (Integrated 1.14" ST7789 TFT screen)
+*   Motor Driver: Onboard MX1508 Dual H-Bridge (Supports up to 1.5A continuous / 2A Peak)
+*   Current / Voltage Sensor: INA219 across 10mΩ High-Side Shunt R2 (Address 0x40)
+*   Power Source: Single 18650 Li-ion Battery with Dual AO3401A Ideal-Diode Reverse Protection
+*   Battery Charging: Integrated TP4056 1A Charger with Under-Voltage/Over-Current Protection & USB-C
+*   Actuator: JGA12-N20 Micro Metal Gear Motor with Quadrature Encoder (V1) or Standard DC Brushed Motor (V2)
 
-4. WIRING AND WIRE COLORS (JGA12-N20 ENCODER MOTOR)
----------------------------------------------------
-Ensure you wire the JGA12-N20 motor according to these exact manufacturer specifications:
-*   Red Wire     (Motor +)       ->  MAX1508 (MX1508) OUT1
-*   White Wire   (Motor -)       ->  MAX1508 (MX1508) OUT2
-*   Black Wire   (Encoder VCC)   ->  ESP32 3V3 (Stable 3.3V Power)
-*   Blue Wire    (Encoder GND)   ->  ESP32 GND (Common Ground)
-*   Yellow Wire  (Encoder Chan A)->  ESP32 GPIO 25 (High-speed interrupt input)
-*   Green Wire   (Encoder Chan B)->  ESP32 GPIO 26 (State/direction logic input)
+4. WIRING AND WIRE COLORS (METANOIA PIN HEADERS):
+-------------------------------------------------
+All connections plug directly into the dedicated 2.54mm headers on the carrier board:
 
-INA219 SENSOR WIRE SPECIFICSCLIONS:
-*   SDA (Voltage analog out)      ->  ESP32 GPIO 21
-*   SCL (Current analog out)      ->  ESP32 GPIO 22
+CONNECTOR J3 (BRUSHED DC MOTOR):
+*   Red Wire     (Motor Terminal +) -> J3 Pin 1 (M1, MX1508 OUTB1)
+*   White Wire   (Motor Terminal -) -> J3 Pin 2 (M2, MX1508 OUTA1)
+*   Motor Control Pins: INA1 -> TTGO GPIO 13 (PWM), INB1 -> TTGO GPIO 25 (PWM)
 
-TTGO INTERNAL TELEMETRY PINS:
-*   ADC Enable (Divider Power)   ->  ESP32 GPIO 14
-*   Internal VBSCL (ADC Input)    ->  ESP32 GPIO 34
+CONNECTOR J4 (JGA12-N20 QUADRATURE ENCODER):
+*   Black Wire   (Encoder VCC)      -> J4 Pin 4 (+3.3V Regulated Power)
+*   Yellow Wire  (Encoder Chan A)   -> J4 Pin 2 (Net IO33 -> TTGO GPIO 33, Hardware Interrupt)
+*   Green Wire   (Encoder Chan B)   -> J4 Pin 3 (Net IO32 -> TTGO GPIO 32, Direction State)
+*   Blue Wire    (Encoder GND)      -> J4 Pin 1 (System Ground)
 
-SURGICAL LED ILLUMINATION (PIN 17):
-*   LED Control (PWM Channel 2)  ->  ESP32 GPIO 17 (High-frequency 5kHz PWM, 0-255 duty cycle)
-*   Ground (Cathode)             ->  ESP32 GND (via current limiting resistor or LED driver)
+CONNECTOR J5 (SURGICAL LED ILLUMINATION):
+*   Pin 1 (LEDS Return)             -> Low-Side Switched Cathode (Driven by Q1 / TTGO GPIO 17)
+*   Pin 2 (VOUT Supply)             -> Positive Anode Supply (Switched Battery Rail, 3.0V - 4.2V)
+*   Note: External LED module must include internal current-limiting resistors.
+
+CONNECTOR J2 (MAIN POWER SWITCH):
+*   Pin 1 (VOUT)                    -> Main switched system power rail
+*   Pin 2 (OUT_P)                   -> TP4056 protected battery output
+
+CONNECTOR J1 (TTGO VIN):
+*   Pin 1 (GND)                     -> System Ground
+*   Pin 2 (VOUT)                    -> Switched Battery Rail to TTGO 5V Power Input
+
+INA219 SENSOR ROUTING:
+*   SDA (I2C Data)                  -> Net SDA -> TTGO GPIO 21 (Carrier Pad 15, 4.7kΩ pull-up R4)
+*   SCL (I2C Clock)                 -> Net SCL -> TTGO GPIO 22 (Carrier Pad 16, 4.7kΩ pull-up R5)
+
+TTGO ONBOARD TELEMETRY & CONTROLS:
+*   ADC Enable (Divider Gate)       -> TTGO GPIO 14 (Active HIGH)
+*   Internal VBAT (ADC Input)       -> TTGO GPIO 34 (ADC1_CH6, 100k/100k divider)
+*   Left Button (Navigation)        -> TTGO GPIO 0 (Active LOW)
+*   Right Button (Selection)        -> TTGO GPIO 35 (Active LOW)
 
 5. CORE SYSTEM FESCLURES
 -----------------------

@@ -13,9 +13,9 @@
 
 #include <Arduino.h>
 
-// Pins configuration for DRV8833
-#define MOTOR_IN1     16 // ESP32 GPIO connected to DRV8833 IN1 (PWM for speed)
-#define MOTOR_IN2     13 // ESP32 GPIO connected to DRV8833 IN2 (Digital for direction)
+// Pins configuration for MX1508 / DRV8833 on Metanoia Motor Control Board
+#define MOTOR_IN1     16 // S3 GPIO 16 connected to MX1508 INA1 (Carrier Pad 20)
+#define MOTOR_IN2     13 // S3 GPIO 13 connected to MX1508 INB1 (Carrier Pad 5)
 
 // PWM Settings for ESP32's LEDC peripheral
 #define PWM_FREQ      5000 // PWM frequency in Hz (e.g., 5000 Hz for DC motors)

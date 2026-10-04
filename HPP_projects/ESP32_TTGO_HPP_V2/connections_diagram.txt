@@ -1,161 +1,171 @@
 ================================================================================
 FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 2.0)
+HARDWARE PLATFORM: METANOIA MOTOR CONTROL CARRIER BOARD (REV A)
+CONTROLLER MODULE: LILYGO TTGO T-DISPLAY (ESP32)
 ================================================================================
 
-                      +----------------------------------+
-                      |       18650 Li-ion BATTERY       |
-                      |   [Positive +]    [Negative -]   |
-                      +--------|---------------+---------+
-                               |               |
-             +-----------------+               +------------------------+
-             | (Raw Battery Power)                                      |
-             v                                                          v
-  +----------------------+                                   +----------------------+
-  |    INA219 SENSOR     |                                   |  ESP32 (TTGO BOARD)  |
-  |                      |                                   |                      |
-  | [VIN+] Source In <---+                                   | [GND]   Common GND  |<--+
-  | [VIN-] Load Out  ------------[ VCC Power In ]--------+   | [3V3]   3.3V Power  |--+|
-  |                      |                               |   | [GPIO 21] I2C SDA   |<-+|
-  | [SDA] I2C Data   ----------> [ ESP32 GPIO 21 ]       |   | [GPIO 22] I2C SCL   |<-+|
-  | [SCL] I2C Clock  ----------> [ ESP32 GPIO 22 ]       |   | [GPIO 13] PWM IN1   |--+|
-  | [VCC] 3.3V Power <---------- [ ESP32 3V3 ]           |   | [GPIO 27] PWM IN2   |--+|
-  | [GND] Common GND ---+                                |   | [GPIO 25] Enc. A    |<-+|
-  +----------------------+ |                             |   | [GPIO 26] Enc. B    |<-+|
-                           v                             |   | [GPIO 14] ADC EN    |--+|
-                 (Common System Ground)                  |   | [GPIO 34] VBAT In   |<-+|
-                           |                             |   | [GPIO 17] LED PWM   |---+
-                           |                             |   +---------|-----------+  ||
-                           |                             |             v              ||
-  +------------------------+                             |     [Gated Internal        ||
-  |                                                      |      ADC Divider]          ||
-  |       +----------------------------------------------+                            ||
-  |       v                                                                           ||
-  +-------+--------------+                                                            ||
-  |   MAX1508 (MX1508)   |                                                            ||
-  |    (MOTOR DRIVER)    |                                                            ||
-  |                      |                                                            ||
-  | [VCC]  Power Input   |                                                            ||
-  | [GND]  Common Ground |                                                            ||
-  | [IN1]  PWM Speed In  |<----------[ ESP32 GPIO 13 ]                                ||
-  | [IN2]  Direction In  |<----------[ ESP32 GPIO 27 ]                                ||
-  |                      |                                                            ||
-  | [OUT1] Motor Out 1   |---------[RED Wire]----------+                              ||
-  | [OUT2] Motor Out 2   |---------[WHITE Wire]------+ |                              ||
-  +----------------------+                           | |                              ||
-                                                     | |                              ||
-                                                     v v                              ||
-                                           JGA12-N20 ENCODER MOTOR                    ||
-                                           +----------------------+                   ||
-                                           | [M+]  Motor Power +  |                   ||
-                                           | [M-]  Motor Power -  |                   ||
-                                           |                      |                   ||
-                                           | [VCC] Encoder VCC    |<--[BLACK Wire]----+|
-                                           | [GND] Encoder GND    |<--[BLUE Wire]------+
-                                           | [A]   Encoder Chan A |<--[YELLOW Wire]----+ (GPIO 25)
-                                           | [B]   Encoder Chan B |<--[GREEN Wire]-----+ (GPIO 26)
-                                           +----------------------+
+                               +-------------------------------------+
+                               |        18650 Li-ion BATTERY         |
+                               |    [Positive +]     [Negative -]    |
+                               +---------|-----------------|---------+
+                                         |                 |
+                                         v                 v
+                       +-------------------+             [GND]
+                       | REVERSE POLARITY  |               |
+                       | PROTECTION STAGE  |               |
+                       | (2x AO3401A FETs) |               |
+                       |    Q2 and Q3      |               |
+                       +---------|---------+               |
+                                 | Net: VBAT               |
+                                 v                         |
+                     +-----------------------+             |
+                     |  TP4056 CHARGER (U2)  |             |
+                     |   [B+] Battery In <---+             |
+                     |   [B-] Bat GND    <-----------------+
+                     |   [USB-C] 5V In       |
+                     |   [OUT+] Protected Out|-----> [Net: OUT_P]
+                     |   [OUT-] Board GND    |-----> [Net: GND]
+                     +-----------------------+             |
+                                                           |
+  [Net: OUT_P] ----+                                       |
+                   v                                       |
+         +-------------------+                             |
+         |  MAIN SWITCH (J2) |                             |
+         | Pin 2: OUT_P In   |                             |
+         | Pin 1: VOUT Out   |-----> [Net: VOUT (3.0V - 4.2V Switched Rail)]
+         +-------------------+             |
+                                           +----------------------------------+
+                                           |                                  |
+                                           v                                  v
+                               +-----------------------+          +-----------------------+
+                               |   INA219 SENSOR (U5)  |          |      CONNECTOR J1     |
+                               |   & 10mΩ SHUNT (R2)   |          |     (TTGO VIN JST)    |
+                               |                       |          | Pin 2: VOUT (3.0-4.2V)|
+                               | [VIN+] VOUT Supply In |          | Pin 1: GND            |
+                               | [VIN-] VDRIV Load Out |          +-----------------------+
+                               |                       |                      |
+                               | [VCC]  +3.3V Power <--+                      v
+                               | [GND]  Common GND     |          [Net: VOUT to TTGO Pin 1]
+                               | [SDA]  ESP32 GPIO 21  |<---(Carrier Pad 15)
+                               | [SCL]  ESP32 GPIO 22  |<---(Carrier Pad 16)
+                               +-----------|-----------+
+                                           | Net: VDRIV (Motor Supply Rail)
+                                           v
+  +---------------------------------------------------------------------------------------+
+  |                          METANOIA CARRIER BOARD CONTROLLER SOCKET                     |
+  |                               U1: 2x12 HEADER FOOTPRINT                               |
+  |                                                                                       |
+  |  HEADER 1 (Power & Motor Side)                     HEADER 2 (I2C & Auxiliary Side)    |
+  |  Pad  1: 5V   <-- Net: VOUT (Main Power)           Pad 13: GND     <-- Common Ground  |
+  |  Pad  2: GND  <-- Common Ground                    Pad 14: GND     <-- Common Ground  |
+  |  Pad  3: IO27 <-- (Unused)                         Pad 15: IO21    --> INA219 SDA     |
+  |  Pad  4: IO26 <-- (Unused)                         Pad 16: IO22    --> INA219 SCL     |
+  |  Pad  5: IO25 --> MX1508 INB1 (Motor IN2)          Pad 17: IO17    --> LED Driver Q1  |
+  |  Pad  6: IO33 <-- Encoder A (J4 Pin 2)             Pad 18: IO2     <-- (Unused)       |
+  |  Pad  7: IO32 <-- Encoder B (J4 Pin 3)             Pad 19: IO15    <-- (Unused)       |
+  |  Pad  8: IO39 <-- (Unused)                         Pad 20: IO13    --> MX1508 INA1    |
+  |  Pad  9: IO38 <-- (Unused)                         Pad 21: IO12    <-- (Unused)       |
+  |  Pad 10: IO37 <-- (Unused)                         Pad 22: GND     <-- Common Ground  |
+  |  Pad 11: IO36 <-- (Unused)                         Pad 23: GND     <-- Common Ground  |
+  |  Pad 12: 3V3  --> Net: +3.3V Logic Supply          Pad 24: 3V3     --> Net: +3.3V     |
+  +---------------------------------------------------------------------------------------+
+             |               |                |               |                |
+             | Net: IO13     | Net: IO25      | Net: +3.3V    | Net: LED       |
+             v               v                v               v                v
+  +-------------------------------------+   [Logic Rail] +-------------------------------+
+  |        MX1508 MOTOR DRIVER (U4)     |                |      LED LOW-SIDE DRIVER      |
+  |                                     |                |   Q1 (N-Ch MOSFET, AO3400A)   |
+  | [VDD1/2] Motor Power <-- Net: VDRIV |                |                               |
+  | [VCC1/2] Logic Power <-- Net: +3.3V |                | Gate   <-- Net LED (GPIO 17)  |
+  | [GND]    Common Ground              |                |            via 47Ω R6 / 10k R7|
+  | [INA1]   PWM Speed   <-- GPIO 13    |                | Source <-- GND                |
+  | [INB1]   Direction   <-- GPIO 25    |                | Drain  <-- Net LEDS           |
+  |          (100kΩ pull-downs R1, R3)  |                +---------------|---------------+
+  | [OUTA1]  Motor Out 2 --> Net: M2    |                                | Net: LEDS
+  | [OUTB1]  Motor Out 1 --> Net: M1    |                                v
+  +------------------|------------------+                     +---------------------+
+                     |                                        |  CONNECTOR J5 (LED) |
+                     +-----------------------+                | Pin 2: VOUT Supply  |
+                                             v                | Pin 1: LEDS Return  |
+                                  +---------------------+     +---------------------+
+                                  | CONNECTOR J3 (MOTOR)|
+                                  | Pin 1: M1 (OUTB1)   |
+                                  | Pin 2: M2 (OUTA1)   |
+                                  +----------|----------+
+                                             |
+                                             v
+                      +---------------------------------------------+
+                      |         JGA12-N20 ENCODER MOTOR             |
+                      |                                             |
+                      | [M+]  Motor Terminal +  <-- [RED Wire]   <--| J3 Pin 1 (M1)
+                      | [M-]  Motor Terminal -  <-- [WHITE Wire] <--| J3 Pin 2 (M2)
+                      |                                             |
+                      | [VCC] Encoder Power     <-- [BLACK Wire] <--| J4 Pin 4 (+3.3V)
+                      | [A]   Encoder Channel A <-- [YELLOW Wire]-->| J4 Pin 2 (GPIO 33)
+                      | [B]   Encoder Channel B <-- [GREEN Wire] -->| J4 Pin 3 (GPIO 32)
+                      | [GND] Encoder Ground    <-- [BLUE Wire]  <--| J4 Pin 1 (GND)
+                      +---------------------------------------------+
 
-  SURGICAL LED (PIN 17):
-  +----------------------+
-  | Surgical LED Module  |
-  | [PWM+] Positive / Anode <----[ ESP32 GPIO 17 ]
-  | [GND]  Common Ground    <----[ ESP32 GND ]
-  +----------------------+
+================================================================================
+METANOIA CARRIER BOARD PIN HEADER REFERENCE (2.54mm JST):
+================================================================================
+CONNECTOR J1 (TTGO VIN):
+  Pin 1: GND      -> System Ground
+  Pin 2: VOUT     -> Switched battery rail (3.0V - 4.2V) to TTGO 5V pin
 
---------------------------------------------------------------------------------
-WIRING TABLE REFERENCE:
---------------------------------------------------------------------------------
-SURGICAL LED ILLUMINATION:
-  LED Control / Anode (+) -> ESP32 GPIO 17 (LEDC PWM Channel 2, 5 kHz)
-  Ground / Cathode (-)    -> ESP32 GND (via current limiting resistor or LED driver)
+CONNECTOR J2 (MAIN POWER SWITCH):
+  Pin 1: VOUT     -> Main switched power rail
+  Pin 2: OUT_P    -> TP4056 protected battery output
 
-INA219 SENSOR:
-  VIN+ (Positive Input)   -> 18650 Battery (+)
-  VIN- (Positive Output)  -> MAX1508 (MX1508) VCC
-  SDA                     -> ESP32 GPIO 21 (I2C SDA)
-  SCL                     -> ESP32 GPIO 22 (I2C SCL)
-  VCC                     -> ESP32 3.3V
-  GND                     -> ESP32 GND (Common)
+CONNECTOR J3 (BRUSHED DC MOTOR):
+  Pin 1: M1       -> MX1508 OUTB1 (JGA12-N20 Motor Terminal +, RED Wire)
+  Pin 2: M2       -> MX1508 OUTA1 (JGA12-N20 Motor Terminal -, WHITE Wire)
+  Note: Filter capacitor C7 (100nF) is installed across Pin 1 and Pin 2 for noise suppression.
 
-MAX1508 (MX1508) MOTOR DRIVER:
-  VCC                     -> INA219 VIN-
-  GND                     -> ESP32 GND (Common)
-  IN1  (Logic)            -> ESP32 GPIO 13 (PWM Channel 0)
-  IN2  (Logic)            -> ESP32 GPIO 27 (PWM Channel 1)
-  OUT1 (Power)            -> JGA12-N20 Red Wire (Motor Positive +)
-  OUT2 (Power)            -> JGA12-N20 White Wire (Motor Negative -)
+CONNECTOR J4 (QUADRATURE ENCODER):
+  Pin 1: GND      -> Ground (BLUE Wire)
+  Pin 2: IO33     -> Channel A (YELLOW Wire) -> TTGO GPIO 33 (Hardware Interrupt)
+  Pin 3: IO32     -> Channel B (GREEN Wire)  -> TTGO GPIO 32 (Direction Logic)
+  Pin 4: +3.3V    -> Logic Supply (BLACK Wire) -> Regulated 3.3V
 
-JGA12-N20 ENCODER MOTOR (WIRE MAPPING):
-  Red Wire    (Motor +)   -> MAX1508 (MX1508) OUT1
-  White Wire  (Motor -)   -> MAX1508 (MX1508) OUT2
-  Black Wire  (Enc VCC)   -> ESP32 3.3V (Encoder Power)
-  Blue Wire   (Enc GND)   -> ESP32 GND (Common Ground)
-  Yellow Wire (Channel A) -> ESP32 GPIO 25 (High-speed interrupt pin)
-  Green Wire  (Channel B) -> ESP32 GPIO 26 (State/Direction pin)
+CONNECTOR J5 (SURGICAL LED ILLUMINATION):
+  Pin 1: LEDS     -> Switched low-side return through N-Channel MOSFET Q1
+  Pin 2: VOUT     -> Direct battery rail VOUT (3.0V - 4.2V)
+  Note: External LED module must include internal current-limiting resistors.
 
-JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
---------------------------------------------------------------------------------
+================================================================================
+ESP32 TTGO T-DISPLAY PIN MAPPING (U1):
+================================================================================
+FUNCTION         | GPIO    | CARRIER NET | HARDWARE ROUTING / DESTINATION
+-----------------|---------|-------------|--------------------------------------
+MOTOR_IN1 (PWM)  | GPIO 13 | Net IO13    | MX1508 INA1 (Carrier Pad 20)
+MOTOR_IN2 (PWM)  | GPIO 25 | Net IO25    | MX1508 INB1 (Carrier Pad 5)
+ENCODER_PIN_A    | GPIO 33 | Net IO33    | Encoder Channel A (J4 Pin 2, Carrier Pad 6)
+ENCODER_PIN_B    | GPIO 32 | Net IO32    | Encoder Channel B (J4 Pin 3, Carrier Pad 7)
+SURGICAL LED PWM | GPIO 17 | Net LED     | Q1 Gate via 47Ω R6 / 10k R7 (Carrier Pad 17)
+INA219 I2C SDA   | GPIO 21 | Net SDA     | INA219 SDA via 4.7kΩ pull-up R4 (Carrier Pad 15)
+INA219 I2C SCL   | GPIO 22 | Net SCL     | INA219 SCL via 4.7kΩ pull-up R5 (Carrier Pad 16)
+ADC Enable       | GPIO 14 | Onboard     | Controls onboard 100k/100k battery divider
+Internal VBAT    | GPIO 34 | Onboard     | Reads internal battery divider voltage (ADC1_CH6)
+Left Button      | GPIO 0  | Onboard     | Local Menu / Navigation / Pause / Stop
+Right Button     | GPIO 35 | Onboard     | Local Menu / Selection / Start / Resume
 
-  +-----------------------+                    +-----------------------+
-  |   MAX1508 (MX1508)    |                    |   ESP32 TTGO BOARD    |
-  |     (MOTOR DRIVER)    |                    |     (MCU BOARD)       |
-  |                       |                    |                       |
-  |  [OUT1] Motor Out + ------+                | [GND]   Common Ground | <---+
-  |  [OUT2] Motor Out - ----+ |                | [3V3]   Power Output  | <--+ |
-  |                       | | |                | [GPIO 25] Encoder A   | <---+ |
-  +-----------------------+ | |                | [GPIO 26] Encoder B   | <--+ | |
-                            | |                +-----------------------+    | | |
-                            | |                                             | | |
-                            | |    JGA12-N20 ENCODER MOTOR                  | | |
-                            | |    +----------------------+                 | | |
-                            | +--->| [M+] Motor Pin +     | [RED Wire]      | | |
-                            +----->| [M-] Motor Pin -     | [WHITE Wire]    | | |
-                                   | [VCC] Encoder VCC    |<--[BLACK Wire]--+ | |
-                                   | [GND] Encoder GND    |<--[BLUE Wire]-----+ |
-                                   | [A] Encoder Chan A   |<--[YELLOW Wire]-----+
-                                   | [B] Encoder Chan B   |<--[GREEN Wire]------+
-                                   +----------------------+
+================================================================================
+TECHNICAL SPECIFICATIONS & SAFEGUARDS:
+================================================================================
+1. CURRENT SHUNT: High-side current sensing uses a 10mΩ (0.010Ω) precision resistor R2
+   placed between VOUT and VDRIV. INA219 registers are calibrated with CAL=40960 (0xA000)
+   to ensure 100µA/bit resolution up to 3.27A full-scale.
 
-18650 BATTERY:
-  Positive (+)            -> INA219 VIN+
-  Negative (-)            -> ESP32 GND (Common)
+2. REVERSE POLARITY: Dual parallel AO3401A P-MOSFETs (Q2, Q3) provide ultra-low drop
+   (< 80mV at 2A) reverse battery protection between 18650 holder BT1 and VBAT.
 
---------------------------------------------------------------------------------
-TECHNICAL NOTES:
---------------------------------------------------------------------------------
-1. COMMON GROUND: The Battery (-), ESP32 GND, INA219 GND, and MAX1508 (MX1508) GND must
-   all be connected together for the signal references to work correctly.
+3. MOTOR SLEEP & STANDBY: 100kΩ pull-down resistors R1 and R3 hold MX1508 inputs
+   low during boot, preventing spurious motor motion upon startup or reset.
 
-2. I2C COMMUNICATION: The INA219 communicates digitally over I2C. Ensure SDA is
-   connected to GPIO 21 and SCL to GPIO 22. Pull-up resistors (e.g., 4.7kΩ) on 
-   the SDA/SCL lines may be required if they are not included on your INA219 breakout board.
-
-3. CURRENT & VOLTAGE LIMITS: The INA219 default configuration supports up to 26V
-   bus voltage and ±3.2A continuous current. It handles the 18650 voltage (4.2V max) 
-   and the motor stall current safely without analog scaling issues.
-
-4. SIGNAL INTEGRITY: Keep the I2C wires (SDA/SCL) relatively short and away from
-   the MAX1508 (MX1508) motor output wires to prevent motor PWM noise from corrupting 
-   the digital I2C sensor communications.
-
-5. DECOUPLING: If the display flickers or the ESP32 reboots when the motor
-   starts, add a 100uF to 470uF electrolytic capacitor across the
-   MAX1508 (MX1508) VCC and GND pins to handle current spikes.
-
-6. DUAL-VOLTAGE MONITORING & USB CHARGING DETECTION:
-   - Onboard Battery ADC (GPIO 34): The TTGO T-Display board has a built-in
-     100k/100k voltage divider connected to GPIO 34 to read battery level.
-   - Onboard ADC Enable (GPIO 14): Power to the voltage divider is controlled
-     by GPIO 14. GPIO 14 must be driven HIGH to perform a reading, and LOW 
-     to save power.
-   - Dual-Sensor Comparison:
-     * When USB is disconnected (battery power): Both the internal ADC (GPIO 34)
-       and external INA219 read identical voltage levels (within 0.1V).
-     * When USB is connected: The onboard TP4054 lithium charger applies power
-       to the board's VBAT line, causing the internal ADC (GPIO 34) to read
-       significantly higher (typically > 4.25V, or > 0.12V above the actual 
-       battery pack voltage read by the external INA219 over I2C).
-     * Charging Status: The system dynamically compares these two readings
-       to determine if the USB is plugged in and the battery is charging,
-       triggering the "CHG" logo on the TFT display and detailed status on the web.
+4. DUAL CHARGING DETECTION:
+   - System monitors internal voltage on GPIO 34 (divider gated by GPIO 14) and
+     cell terminal voltage via INA219.
+   - When USB is connected, internal divider detects charger output (> 4.25V),
+     triggering "CHG" display mode on screen and web dashboard.
 ================================================================================

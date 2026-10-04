@@ -3,129 +3,80 @@ Senior Integration Lead
 Cairo,Egypt
 ================================================================================
 PROJECT: ESP32_TTGO_HPP_V2 (Motor Control & Battery Telemetry)
+HARDWARE: METANOIA MOTOR CONTROL CARRIER BOARD (REV A)
+CONTROLLER: LILYGO TTGO T-DISPLAY (ESP32)
 VERSION: 2.0 - REAL-TIME SENSOR FUSION & DUAL-CORE MULTITASKING
 ================================================================================
 
-1. HARDWARE COMPONENT VARIANTS:
--------------------------------
-The unified firmware binary dynamically supports two surgical pen variants:
-- VERSION 1: Premium Follicle Extractor
-  * Actuator: JGA12-N20 Micro Metal Gear 6V DC Motor with Quadrature Encoder.
-  * Counter: Current-Speed Sensor Fusion (INA219 spike + Encoder speed dip).
-  * Speed: Real physical RPM measured by high-speed hardware interrupts.
-- VERSION 2: Standard Follicle Extractor
-  * Actuator: Standard DC Brushed Motor (No Encoder).
-  * Counter: Pure Current-Spike Detection.
-  * Speed: Estimated RPM proportional to applied motor voltage.
+1. HARDWARE COMPONENT ARCHITECTURE:
+-----------------------------------
+The system integrates onto the custom Metanoia Motor Control Carrier Board (Rev A):
+- Carrier Controller Socket (U1): Dual 12-pin header (2x12 footprint) accepting
+  either the classic TTGO T-Display or LilyGO T-Display-S3.
+- Integrated Battery Power: Single 18650 Li-ion cell (BT1, Keystone 1042P) with
+  dual-MOSFET ideal-diode reverse polarity protection (Q2, Q3: AO3401A P-MOSFETs).
+- Charger Subsystem (U2): TP4056 1A Li-ion charger with integrated cell protection
+  and external USB-C port.
+- Power Switch (J2): Two-pin header in series between TP4056 OUT+ and main VOUT rail.
+- Motor Driver (U4): MX1508 Dual H-Bridge (Channel 1 utilized), powered from VDRIV.
+  Input lines INA1 / INB1 held low during boot via 100kΩ pull-downs R1 and R3.
+- Power Monitor (U5): INA219 I2C current/power monitor across 10mΩ high-side shunt R2,
+  measuring motor voltage, current, and power independently from system logic.
+- Switched LED Driver (Q1): Logic-level N-Channel MOSFET (AO3400A) low-side switch
+  driven via 47Ω gate resistor R6 and 10kΩ gate pull-down R7.
 
-2. PIN MAPPING (ESP32 TTGO T-Display):
---------------------------------------
-FUNCTION         | GPIO | WIRE COLOR (N20) | NOTES
------------------|------|------------------|------------------------------------
-TFT Display      | -    | -                | Internally connected via SPI
-MOTOR_IN1 (PWM)  | 13   | Red (Motor +)    | Controls Speed/Dir via MAX1508 OUT1
-MOTOR_IN2 (PWM)  | 27   | White (Motor -)  | Controls Speed/Dir via MAX1508 OUT2
-Surgical LED PWM | 17   | -                | High-frequency 5kHz LED PWM (LEDC Chan 2)
-INA219 SDA (Volt) | 36   | -                | Digital I2C Input (1V out = 5V in) - I2C_SDA
-INA219 SCL (Amp)  | 32   | -                | Digital I2C Input (1V out = 1A in) - I2C_SCL
-ADC Enable Pin   | 14   | -                | Enables Internal battery divider
-Internal VBSCL    | 34   | -                | Onboard battery divider - ADC1_CH6
-Encoder Chan A   | 25   | Yellow           | Quadrature Channel A (Interrupt)
-Encoder Chan B   | 26   | Green            | Quadrature Channel B (State Pin)
-Encoder VCC      | 3V3  | Black            | Encoder Power (3.3V)
-Encoder GND      | GND  | Blue             | Encoder Ground Reference
+2. PIN MAPPING (LILYGO TTGO T-DISPLAY ON METANOIA CARRIER):
+-----------------------------------------------------------
+FUNCTION         | GPIO | CARRIER PAD | WIRE COLOR (N20) | NOTES
+-----------------|------|-------------|------------------|------------------------------------
+TFT Display      | -    | Onboard     | -                | 1.14" ST7789 SPI Display
+MOTOR_IN1 (PWM)  | 13   | Pad 20      | Red (Motor +)    | MX1508 INA1 (PWM speed / fwd)
+MOTOR_IN2 (PWM)  | 25   | Pad 5       | White (Motor -)  | MX1508 INB1 (PWM speed / rev)
+ENCODER_PIN_A    | 33   | Pad 6       | Yellow           | Quadrature Channel A (J4 Pin 2)
+ENCODER_PIN_B    | 32   | Pad 7       | Green            | Quadrature Channel B (J4 Pin 3)
+Surgical LED PWM | 17   | Pad 17      | -                | Gate drive for Q1 (J5 Pin 1)
+INA219 I2C SDA   | 21   | Pad 15      | -                | I2C Data via 4.7kΩ pull-up R4
+INA219 I2C SCL   | 22   | Pad 16      | -                | I2C Clock via 4.7kΩ pull-up R5
+ADC Enable Pin   | 14   | Onboard     | -                | Enables internal 100k/100k divider
+Internal VBAT    | 34   | Onboard     | -                | Onboard battery divider (ADC1_CH6)
+Left Button      | 0    | Onboard     | -                | Active LOW (Menu / Pause / Stop)
+Right Button     | 35   | Onboard     | -                | Active LOW (Menu / Start / Resume)
 
-3. HARDWARE CONNECTION FLOW:
-----------------------------
-18650 LI-ION CELL:
-  Positive (+)   -> INA219 SENSOR [VIN+] AND TTGO VBSCL connector pin
-  Negative (-)   -> ESP32 GND (Common Ground)
-
-INA219 SENSOR:
-  [VIN+]          -> Battery Positive (+)
-  [VIN-]          -> MAX1508 (MX1508) VCC
-  [GND]          -> Common Ground
-  [SDA]           -> ESP32 GPIO 21
-  [SCL]           -> ESP32 GPIO 22
-
-MAX1508 (MX1508) MOTOR DRIVER:
-  [VCC]          -> INA219 VIN-
-  [GND]          -> Common Ground
-  [IN1]          -> ESP32 GPIO 13
-  [IN2]          -> ESP32 GPIO 27
-  [OUT1]         -> JGA12-N20 Motor Terminal (+) [Red Wire]
-  [OUT2]         -> JGA12-N20 Motor Terminal (-) [White Wire]
+3. EXTERNAL PIN HEADERS (2.54mm JST):
+-------------------------------------
+- J1 (TTGO VIN):
+  Pin 1: GND | Pin 2: VOUT (Alternative direct module power feed)
+- J2 (Main Switch):
+  Pin 1: VOUT | Pin 2: OUT_P (Connects external toggle switch in series)
+- J3 (Motor):
+  Pin 1: M1 (OUTB1, Red Wire) | Pin 2: M2 (OUTA1, White Wire) | C7 100nF filter
+- J4 (Encoder):
+  Pin 1: GND (Blue) | Pin 2: IO33 (Yellow) | Pin 3: IO32 (Green) | Pin 4: +3.3V (Black)
+- J5 (LEDs):
+  Pin 1: LEDS (Switched ground return via Q1) | Pin 2: VOUT (Battery rail)
 
 4. REAL-TIME MULTI-CORE WORKPARTITIONING:
 -----------------------------------------
-To ensure medical-grade counting reliability and instantaneous safety stops, the system distributes processes across dual cores via FreeRTOS:
+Distributed across dual Xtensa cores via FreeRTOS:
 - CORE 0 (Background task, 100Hz high-priority loop):
-  * Sampling: Characterized INA219 analog inputs.
-  * Safety: 10ms overcurrent trip (max 2.5A) and low battery cutoff.
+  * Sampling: INA219 digital voltage and current readings at 100Hz.
+  * Safety: 10ms overcurrent trip (max 2.5A) and low battery cutoff (< 3.2V).
   * Motion: Soft-start speed ramping and alternating FUE oscillation.
   * Counting: Current-Speed Sensor Fusion follicle counting.
 - CORE 1 (Standard main loop & server context):
-  * UI: Multi-screen rotation and welcoming animations.
-  * Inputs: Dual-button press debouncing.
-  * Network: AP and Station asynchronous Web Server.
+  * UI: Multi-screen rotation, graphical motor telemetry, welcoming animations.
+  * Inputs: Dual-button press debouncing and on-device menu navigation.
+  * Network: Captive Portal AP ("HPP_CONTROL_V2") and Station Web Server.
 
-5. CHARACTERIZED ANALOG SYSTEM (esp_adc_cal):
-----------------------------------------------
-The system completely bypasses uncalibrated raw analog reads. It uses the ESP32 characterization API to read Vref calibration curves burned into the eFuse at the factory.
-- SDA Analog (SDA): `esp_adc_cal_raw_to_voltage` maps GPIO 21 raw readings directly to millivolts, divided by 1000 and scaled by 5.0.
-- SCL Analog (SCL): Characterizes GPIO 22 directly to millivolts, mapped linearly to Amperes (1000mV = 1.0A).
-- VBSCL Analog: Gated by GPIO 14, characterizing GPIO 34 directly to millivolts, scaled by 2.0 (100k/100k onboard divider).
-
-6. CORE SYSTEM FESCLURES:
--------------------------
-- On-Device Local Menu: Triggered by a dual long press of both buttons. Left scrolls, Right selects. Adjusts speed, mode, motor version, and resets counting on-device.
-- Differential Charging: Compares internal VBSCL (GPIO 34) and external battery cell voltage (INA219) to dynamically detect USB power, showing the charging icon (CHG) on the TFT screen.
-- Web Diagnostics Scope: HTML5 Canvas-based rolling plot rendering real-time scrolling Voltage, Current, and RPM at 2Hz on the diagnostics panel without internet connectivity.
-- Proportional Web Logo: Dashboard rotating gear animation spins at a speed proportional to actual motor speed, stopping when the motor halts.
+5. SENSOR FUSION GRAFT COUNTING ALGORITHM:
+------------------------------------------
+Detects skin penetration and accurately registers follicle extraction without false counts:
+1. IDLE / AIR LOAD: System stabilizes and calibrates 'Baseline Current' and 'Baseline RPM'.
+2. PENETRATION: When the pen engages tissue, mechanical resistance rises:
+   - Condition A: INA219 current SPIKES above [baselineCurrent + penetrationOffset].
+   - Condition B: N20 optical/magnetic encoder detects RPM DIPPING > 10% below baseline.
+   - Fusion Result: Both conditions confirm true skin penetration, locking isPenetrating = TRUE.
+3. WITHDRAWAL: When the needle exits the scalp:
+   - Current falls below the hysteresis threshold [Spike - penetrationHysteresis].
+   - Lock releases, graft count increments (+1), and OLED/Web flash visual confirmations.
 ================================================================================
-
-================================================================================
-APPENDIX: SENSOR FUSION GRAFT COUNTING LOGIC
-================================================================================
-This diagram illustrates the real-time algorithm (executed at 100Hz) used to 
-detect skin penetration and accurately count grafts without false positives.
-
-It utilizes the digital I2C INA219 sensor (Current) and the N20 Encoder (RPM).
-
-[TIMELINE] ----> Time (Penetration Cycle) ---->
-
-                [1] IDLE / FREE AIR        [2] PENETRATION (SCALP)        [3] WITHDRAWAL
-                ---------------------      -----------------------        ---------------------
-         
-         (A) ++++++++++++++++++++++++++     ...      ...      ...      ++++++++++++++++++++++++++
-   Motor     |                        |    /   \    /   \    /   \    /                         |
-    RPM      |  (Calibrated Baseline) |___/     \__/     \__/     \__/ (Returns to Baseline)    |
-             |                        |   (RPM DIPS > 10% THRESHOLD)                            |
-         (0) +------------------------+---------------------------------------------------------+
-                                      |                              |
-                                      V     [ SENSOR FUSION ]        V
-                                      |                              |
-         (A) +------------------------+------------------------------+--------------------------+
-             |                        |                              |                          |
-             |                        |         _.--._         |                          |
-    INA219   |----[SPIKE THRESHOLD]---|-------.'------------'.-------|--------------------------|
-   Current   |                        |      /                \      |                          |
-             |----[EXIT / HYSTERESIS]-|-----/------------------\-----|--- (Count +1 Trigger)    |
-             |                        |    /                    \    |                          |
-             |  (Calibrated Baseline) |___/                      \___| (Returns to Baseline)    |
-         (0) ++++++++++++++++++++++++++                              ++++++++++++++++++++++++++
-                                          ^                          ^
-                                      [STATE: isPenetrating = TRUE]  |
-                                                                [STATE: isPenetrating = FALSE]
-                                                                [ACTION: penetrationCount++]
-
-LOGIC BREAKDOWN:
-1. IDLE: The system stabilizes and calibrates 'Baseline RPM' and 'Baseline Current'.
-2. PENETRATION: As the pen presses into the scalp, mechanical resistance increases.
-   - Condition A (Current Spike): The INA219 detects Amperage crossing the [SPIKE THRESHOLD].
-   - Condition B (RPM Dip): The Encoder detects RPM dipping >10% below [Baseline RPM].
-   - Fusion Result: Both conditions are met. The system locks 'isPenetrating' to TRUE.
-3. WITHDRAWAL: As the pen is removed, mechanical resistance drops.
-   - Condition C (Exit Hysteresis): Current drops below the lower [EXIT THRESHOLD].
-   - Result: The system unlocks 'isPenetrating', registers a single valid count (+1), 
-     and flashes the OLED display. The Hysteresis gap prevents double-counting from hand tremors.

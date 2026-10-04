@@ -13,9 +13,9 @@
 
 #include <Arduino.h>
 
-// Pins configuration for MAX1508 (MX1508)
-#define MOTOR_IN1     13 // ESP32 GPIO connected to MAX1508 IN1 (PWM for speed/forward)
-#define MOTOR_IN2     27 // ESP32 GPIO connected to MAX1508 IN2 (PWM for speed/reverse)
+// Pins configuration for MAX1508 (MX1508) on Metanoia Motor Control Board
+#define MOTOR_IN1     13 // ESP32 GPIO 13 connected to MX1508 INA1 (Carrier Pad 20)
+#define MOTOR_IN2     25 // ESP32 GPIO 25 connected to MX1508 INB1 (Carrier Pad 5)
 
 // PWM Settings for ESP32's LEDC peripheral
 #define PWM_FREQ      5000 // PWM frequency in Hz (e.g., 5000 Hz for DC motors)

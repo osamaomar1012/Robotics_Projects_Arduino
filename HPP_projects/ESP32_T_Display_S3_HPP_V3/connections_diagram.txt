@@ -1,144 +1,173 @@
 ================================================================================
 FULL MASTER CONNECTION DIAGRAM: EL-BASEET HAIR PEN-V2 (VERSION 3.0)
+HARDWARE PLATFORM: METANOIA MOTOR CONTROL CARRIER BOARD (REV A)
+CONTROLLER MODULE: LILYGO T-DISPLAY-S3 (ESP32-S3)
 ================================================================================
-HARDWARE MODULE: LILYGO T-DISPLAY-S3 (ESP32-S3)
 
-                      +----------------------------------+
-                      |       18650 Li-ion BATTERY       |
-                      |   [Positive +]    [Negative -]   |
-                      +--------|---------------+---------+
-                               |               |
-             +-----------------+               +------------------------+
-             | (Raw Battery Power)                                      |
-             v                                                          v
-  +----------------------+                                   +----------------------+
-  |    INA219 SENSOR     |                                   |  LILYGO T-DISPLAY-S3 |
-  |                      |                                   |  (ESP32-S3 BOARD)    |
-  | [VIN+] Source In  <---+                                   |                      |
-  | [VIN-] Load Out   ------------[ VCC Power In ]--------+   | [GND]     Common GND |<--+
-  |                      |                               |   | [3V3]     3.3V Power |--+|
-  | [SDA]  I2C SDA     ----------> [ S3 GPIO 43 ]         |   | [GPIO 43] I2C SDA    |<-+|
-  | [SCL]  I2C SCL     ----------> [ S3 GPIO 44 ]         |   | [GPIO 44] I2C SCL    |<-+|
-  | [GND]  Common GND  ---+                              |   | [GPIO 13] PWM IN1    |--+|
-  +----------------------+ |                             |   | [GPIO 12] PWM IN2    |--+|
-                           v                             |   | [GPIO 10] Enc. A     |<-+|
-                 (Common System Ground)                  |   | [GPIO 11] Enc. B     |<-+|
-                           ^                             |   | [GPIO 15] Pwr Gate   |--+| (Must be HIGH!)
-                           |                             |   | [GPIO 4]  VBAT In    |<-+| (Onboard Battery)
-  +------------------------+                             |   +----------------------+  ||
-  |                                                      |                             ||
-  |       +----------------------------------------------+                             ||
-  |       v                                                                            ||
-  +-------+--------------+                                                             ||
-  |       DRV8833        |                                                             ||
-  |    (MOTOR DRIVER)    |                                                             ||
-  |                      |                                                             ||
-  | [VCC]  Power Input   |                                                             ||
-  | [GND]  Common Ground |                                                             ||
-  | [SLP]  Sleep Pin     |<----------[ S3 3V3 ]                                        ||
-  | [IN1]  PWM Speed In  |<----------[ S3 GPIO 13 ]                                    ||
-  | [IN2]  Direction In  |<----------[ S3 GPIO 12 ]                                    ||
-  |                      |                                                             ||
-  | [OUT1] Motor Out 1   |---------[RED Wire]----------+                               ||
-  | [OUT2] Motor Out 2   |---------[WHITE Wire]------+ |                               ||
-  +----------------------+                           | |                               ||
-                                                     | |                               ||
-                                                     v v                               ||
-                                           JGA12-N20 ENCODER MOTOR                     ||
-                                           +----------------------+                    ||
-                                           | [M+]  Motor Power +  |                    ||
-                                           | [M-]  Motor Power -  |                    ||
-                                           |                      |                    ||
-                                           | [VCC] Encoder VCC    |<--[BLACK Wire]-----+|
-                                           | [GND] Encoder GND    |<--[BLUE Wire]-------+
-                                           | [A]   Encoder Chan A |<--[YELLOW Wire]-----+ (GPIO 10)
-                                           | [B]   Encoder Chan B |<--[GREEN Wire]------+ (GPIO 11)
-                                           +----------------------+
-
---------------------------------------------------------------------------------
-
-JGA12-N20 ENCODER MOTOR CONNECTION SCHEMATIC:
----------------------------------------------
-
-  +-----------------------+                    +-----------------------+
-  |        DRV8833        |                    |   LILYGO T-DISPLAY-S3 |
-  |     (MOTOR DRIVER)    |                    |     (MCU BOARD)       |
-  |                       |                    |                       |
-  |  [OUT1] Motor Out + ------+                | [GND]     Common GND  | <---+
-  |  [OUT2] Motor Out - ----+ |                | [3V3]     Power Output| <--+ |
-  |                       | | |                | [GPIO 10] Encoder A   | <---+ |
-  +-----------------------+ | |                | [GPIO 11] Encoder B   | <--+ | |
-                            | |                +-----------------------+    | | |
-                            | |                                             | | |
-                            | |    JGA12-N20 ENCODER MOTOR                  | | |
-                            | |    +----------------------+                 | | |
-                            | +--->| [M+] Motor Pin +     | [RED Wire]      | | |
-                            +----->| [M-] Motor Pin -     | [WHITE Wire]    | | |
-                                   | [VCC] Encoder VCC    |<--[BLACK Wire]--+ | |
-                                   | [GND] Encoder GND    |<--[BLUE Wire]-----+ |
-                                   | [A]   Encoder Chan A |<--[YELLOW Wire]-----+ (GPIO 10)
-                                   | [B]   Encoder Chan B |<--[GREEN Wire]------+ (GPIO 11)
-                                   +----------------------+
-
-18650 BATTERY:
-  Positive (+)            -> INA219 Source Input [VIN+] AND Board Battery Connector (+)
-  Negative (-)            -> ESP32 GND (Common)
-
-INA219 VOLTAGE/CURRENT SENSOR:
-  VIN+ (Positive Input)   -> 18650 Battery (+)
-  VIN- (Positive Output)  -> DRV8833 VCC
-  SDA                     -> T-Display-S3 GPIO 43 (I2C SDA)
-  SCL                     -> T-Display-S3 GPIO 44 (I2C SCL)
-  GND                     -> ESP32 GND (Common)
-
-LILYGO T-DISPLAY-S3 BOARD:
-  GND                     -> Ground reference
-  3.3V                    -> Powers DRV8833 SLP and N20 Encoder VCC
-  GPIO 15 (Power Gate)    -> Internally gates on peripheral & LCD power (Must be HIGH!)
-  GPIO 38 (Backlight)     -> LCD screen backlight control (Must be HIGH!)
-  GPIO 5  (LCD Reset)     -> ST7789 display hardware reset (TFT_RST)
-  GPIO 4  (Battery ADC)   -> Onboard battery connector divider input (ADC1_CH3)
-  GPIO 0  (BOOT Button)   -> Onboard Left Button (Active LOW)
-  GPIO 14 (KEY Button)    -> Onboard Right Button (Active LOW)
-  GPIO 13 (PWM OUT1)      -> DRV8833 IN1
-  GPIO 12 (PWM OUT2)      -> DRV8833 IN2
-  GPIO 10 (Interrupt)     -> N20 Encoder Channel A (Yellow)
-  GPIO 11 (State Check)   -> N20 Encoder Channel B (Green)
-
-SURGICAL LED ILLUMINATION (PIN 18):
-  LED Control / Anode (+) -> T-Display-S3 GPIO 18 (LEDC PWM Channel 2, 5 kHz)
-  Ground / Cathode (-)    -> ESP32 GND (via current limiting resistor or LED driver)
-
-DRV8833 MOTOR DRIVER:
-  VCC                     -> INA219 VIN-
-  GND                     -> ESP32 GND (Common)
-  IN1  (Logic)            -> T-Display-S3 GPIO 13 (PWM Channel 0)
-  IN2  (Logic)            -> T-Display-S3 GPIO 12 (PWM Channel 1)
-  OUT1 (Power)            -> JGA12-N20 Red Wire (Motor Positive +)
-  OUT2 (Power)            -> JGA12-N20 White Wire (Motor Negative -)
-  SLP (Sleep)             -> ESP32 3.3V (Must be HIGH to enable driver)
+                               +-------------------------------------+
+                               |        18650 Li-ion BATTERY         |
+                               |    [Positive +]     [Negative -]    |
+                               +---------|-----------------|---------+
+                                         |                 |
+                                         v                 v
+                       +-------------------+             [GND]
+                       | REVERSE POLARITY  |               |
+                       | PROTECTION STAGE  |               |
+                       | (2x AO3401A FETs) |               |
+                       |    Q2 and Q3      |               |
+                       +---------|---------+               |
+                                 | Net: VBAT               |
+                                 v                         |
+                     +-----------------------+             |
+                     |  TP4056 CHARGER (U2)  |             |
+                     |   [B+] Battery In <---+             |
+                     |   [B-] Bat GND    <-----------------+
+                     |   [USB-C] 5V In       |
+                     |   [OUT+] Protected Out|-----> [Net: OUT_P]
+                     |   [OUT-] Board GND    |-----> [Net: GND]
+                     +-----------------------+             |
+                                                           |
+  [Net: OUT_P] ----+                                       |
+                   v                                       |
+         +-------------------+                             |
+         |  MAIN SWITCH (J2) |                             |
+         | Pin 2: OUT_P In   |                             |
+         | Pin 1: VOUT Out   |-----> [Net: VOUT (3.0V - 4.2V Switched Rail)]
+         +-------------------+             |
+                                           +----------------------------------+
+                                           |                                  |
+                                           v                                  v
+                               +-----------------------+          +-----------------------+
+                               |   INA219 SENSOR (U5)  |          |      CONNECTOR J1     |
+                               |   & 10mΩ SHUNT (R2)   |          |     (MODULE VIN JST)  |
+                               |                       |          | Pin 2: VOUT (3.0-4.2V)|
+                               | [VIN+] VOUT Supply In |          | Pin 1: GND            |
+                               | [VIN-] VDRIV Load Out |          +-----------------------+
+                               |                       |                      |
+                               | [VCC]  +3.3V Power <--+                      v
+                               | [GND]  Common GND     |          [Net: VOUT to S3 Pin 12]
+                               | [SDA]  S3 GPIO 43     |<---(Carrier Pad 15)
+                               | [SCL]  S3 GPIO 44     |<---(Carrier Pad 16)
+                               +-----------|-----------+
+                                           | Net: VDRIV (Motor Supply Rail)
+                                           v
+  +---------------------------------------------------------------------------------------+
+  |                          METANOIA CARRIER BOARD CONTROLLER SOCKET                     |
+  |                               U1: 2x12 HEADER FOOTPRINT                               |
+  |                                                                                       |
+  |  HEADER 1 (Power & Motor Side)                     HEADER 2 (I2C & Auxiliary Side)    |
+  |  Pad  1: 5V   <-- Net: VOUT (Main Power)           Pad 13: GND     <-- Common Ground  |
+  |  Pad  2: GND  <-- Common Ground                    Pad 14: GND     <-- Common Ground  |
+  |  Pad  3: NC   <-- (Unused)                         Pad 15: GPIO 43 --> INA219 SDA     |
+  |  Pad  4: NC   <-- (Unused)                         Pad 16: GPIO 44 --> INA219 SCL     |
+  |  Pad  5: IO25 --> MX1508 INB1 (S3 GPIO 13)         Pad 17: GPIO 18 --> LED Driver Q1  |
+  |  Pad  6: IO33 <-- Encoder A (S3 GPIO 12, J4-2)     Pad 18: GPIO 17 <-- (Unused)       |
+  |  Pad  7: IO32 <-- Encoder B (S3 GPIO 11, J4-3)     Pad 19: GPIO 21 <-- (Unused)       |
+  |  Pad  8: IO39 <-- (Unused)                         Pad 20: IO13    --> MX1508 INA1    |
+  |  Pad  9: IO38 <-- (Unused)                         Pad 21: NC      <-- (Unused)       |
+  |  Pad 10: IO37 <-- (Unused)                         Pad 22: GND     <-- Common Ground  |
+  |  Pad 11: IO36 <-- (Unused)                         Pad 23: GND     <-- Common Ground  |
+  |  Pad 12: 3V3  --> Net: +3.3V Logic Supply          Pad 24: 3V3     --> Net: +3.3V     |
+  +---------------------------------------------------------------------------------------+
+             |               |                |               |                |
+             | Net: IO13     | Net: IO25      | Net: +3.3V    | Net: LED       |
+             | (S3 GPIO 16)  | (S3 GPIO 13)   | [Logic Rail]  | (S3 GPIO 18)   |
+             v               v                v               v                v
+  +-------------------------------------+   [Logic Rail] +-------------------------------+
+  |        MX1508 MOTOR DRIVER (U4)     |                |      LED LOW-SIDE DRIVER      |
+  |                                     |                |   Q1 (N-Ch MOSFET, AO3400A)   |
+  | [VDD1/2] Motor Power <-- Net: VDRIV |                |                               |
+  | [VCC1/2] Logic Power <-- Net: +3.3V |                | Gate   <-- Net LED (GPIO 18)  |
+  | [GND]    Common Ground              |                |            via 47Ω R6 / 10k R7|
+  | [INA1]   PWM Speed   <-- GPIO 16    |                | Source <-- GND                |
+  | [INB1]   Direction   <-- GPIO 13    |                | Drain  <-- Net LEDS           |
+  |          (100kΩ pull-downs R1, R3)  |                +---------------|---------------+
+  | [OUTA1]  Motor Out 2 --> Net: M2    |                                | Net: LEDS
+  | [OUTB1]  Motor Out 1 --> Net: M1    |                                v
+  +------------------|------------------+                     +---------------------+
+                     |                                        |  CONNECTOR J5 (LED) |
+                     +-----------------------+                | Pin 2: VOUT Supply  |
+                                             v                | Pin 1: LEDS Return  |
+                                  +---------------------+     +---------------------+
+                                  | CONNECTOR J3 (MOTOR)|
+                                  | Pin 1: M1 (OUTB1)   |
+                                  | Pin 2: M2 (OUTA1)   |
+                                  +----------|----------+
+                                             |
+                                             v
+                      +---------------------------------------------+
+                      |         JGA12-N20 ENCODER MOTOR             |
+                      |                                             |
+                      | [M+]  Motor Terminal +  <-- [RED Wire]   <--| J3 Pin 1 (M1)
+                      | [M-]  Motor Terminal -  <-- [WHITE Wire] <--| J3 Pin 2 (M2)
+                      |                                             |
+                      | [VCC] Encoder Power     <-- [BLACK Wire] <--| J4 Pin 4 (+3.3V)
+                      | [A]   Encoder Channel A <-- [YELLOW Wire]-->| J4 Pin 2 (GPIO 12)
+                      | [B]   Encoder Channel B <-- [GREEN Wire] -->| J4 Pin 3 (GPIO 11)
+                      | [GND] Encoder Ground    <-- [BLUE Wire]  <--| J4 Pin 1 (GND)
+                      +---------------------------------------------+
 
 ================================================================================
-TECHNICAL NOTES:
---------------------------------------------------------------------------------
-1. COMMON GROUND: The Battery (-), ESP32 GND, INA219 GND, and DRV8833 GND must
-   all be connected together for the signal references to work correctly.
+METANOIA CARRIER BOARD PIN HEADER REFERENCE (2.54mm JST):
+================================================================================
+CONNECTOR J1 (MODULE VIN):
+  Pin 1: GND      -> System Ground
+  Pin 2: VOUT     -> Switched battery rail (3.0V - 4.2V) to T-Display-S3 5V pin
 
-2. INA219 I2C COMMUNICATION: Communicates digitally over I2C on GPIO 43 (SDA)
-   and GPIO 44 (SCL).
+CONNECTOR J2 (MAIN POWER SWITCH):
+  Pin 1: VOUT     -> Main switched power rail
+  Pin 2: OUT_P    -> TP4056 protected battery output
 
-3. SIGNAL INTEGRITY: For the PWM lines (13 and 12), keep wires short to 
-   minimize electromagnetic interference (EMI).
+CONNECTOR J3 (BRUSHED DC MOTOR):
+  Pin 1: M1       -> MX1508 OUTB1 (JGA12-N20 Motor Terminal +, RED Wire)
+  Pin 2: M2       -> MX1508 OUTA1 (JGA12-N20 Motor Terminal -, WHITE Wire)
+  Note: Filter capacitor C7 (100nF) is installed across Pin 1 and Pin 2 for noise suppression.
 
-4. DECOUPLING: If the display flickers or the ESP32 reboots when the motor
-   starts, add a 100uF to 470uF electrolytic capacitor across the
-   DRV8833 VCC and GND pins to handle current spikes.
+CONNECTOR J4 (QUADRATURE ENCODER):
+  Pin 1: GND      -> Ground (BLUE Wire)
+  Pin 2: IO33     -> Channel A (YELLOW Wire) -> S3 GPIO 12 (Hardware Interrupt)
+  Pin 3: IO32     -> Channel B (GREEN Wire)  -> S3 GPIO 11 (Direction Logic)
+  Pin 4: +3.3V    -> Logic Supply (BLACK Wire) -> Regulated 3.3V
 
-5. DUAL-VOLTAGE MONITORING & USB CHARGING DETECTION:
-   - Onboard Battery ADC (GPIO 4): The T-Display-S3 board has a built-in
-     100k/100k voltage divider connected to GPIO 4 to read battery level.
-   - Onboard Power Control (GPIO 15): Gated power to the LCD screen and internal 
-     circuits. GPIO 15 must be driven HIGH at all times during operation.
-   - LCD Reset (GPIO 5): Hardware reset for the ST7789 display controller.
-   - LCD Backlight (GPIO 38): Backlight power control.
+CONNECTOR J5 (SURGICAL LED ILLUMINATION):
+  Pin 1: LEDS     -> Switched low-side return through N-Channel MOSFET Q1
+  Pin 2: VOUT     -> Direct battery rail VOUT (3.0V - 4.2V)
+  Note: External LED module must include internal current-limiting resistors.
+
+================================================================================
+LILYGO T-DISPLAY-S3 PIN MAPPING (U1):
+================================================================================
+FUNCTION         | S3 GPIO | CARRIER NET | HARDWARE ROUTING / DESTINATION
+-----------------|---------|-------------|--------------------------------------
+MOTOR_IN1 (PWM)  | GPIO 16 | Net IO13    | MX1508 INA1 (Carrier Pad 20)
+MOTOR_IN2 (PWM)  | GPIO 13 | Net IO25    | MX1508 INB1 (Carrier Pad 5)
+ENCODER_PIN_A    | GPIO 12 | Net IO33    | Encoder Channel A (J4 Pin 2, Carrier Pad 6)
+ENCODER_PIN_B    | GPIO 11 | Net IO32    | Encoder Channel B (J4 Pin 3, Carrier Pad 7)
+SURGICAL LED PWM | GPIO 18 | Net LED     | Q1 Gate via 47Ω R6 / 10k R7 (Carrier Pad 17)
+INA219 I2C SDA   | GPIO 43 | Net SDA     | INA219 SDA via 4.7kΩ pull-up R4 (Carrier Pad 15)
+INA219 I2C SCL   | GPIO 44 | Net SCL     | INA219 SCL via 4.7kΩ pull-up R5 (Carrier Pad 16)
+Power Gate       | GPIO 15 | Onboard     | LCD & Peripheral Power Enable (Must be HIGH!)
+LCD Backlight    | GPIO 38 | Onboard     | LCD Screen Backlight PWM (Must be HIGH!)
+LCD Reset        | GPIO 5  | Onboard     | ST7789 8-bit parallel controller reset
+Internal VBAT    | GPIO 4  | Onboard     | Onboard battery divider (ADC1_CH3)
+BOOT Button (L)  | GPIO 0  | Onboard     | Local Menu / Navigation / Pause / Stop
+KEY Button (R)   | GPIO 14 | Onboard     | Local Menu / Selection / Start / Resume
+
+================================================================================
+TECHNICAL SPECIFICATIONS & SAFEGUARDS:
+================================================================================
+1. CURRENT SHUNT: High-side current sensing uses a 10mΩ (0.010Ω) precision resistor R2
+   placed between VOUT and VDRIV. INA219 registers are calibrated with CAL=40960 (0xA000)
+   to ensure 100µA/bit resolution up to 3.27A full-scale.
+
+2. REVERSE POLARITY: Dual parallel AO3401A P-MOSFETs (Q2, Q3) provide ultra-low drop
+   (< 80mV at 2A) reverse battery protection between 18650 holder BT1 and VBAT.
+
+3. MOTOR SLEEP & STANDBY: 100kΩ pull-down resistors R1 and R3 hold MX1508 inputs
+   low during boot, preventing spurious motor motion upon startup or reset.
+
+4. USB CHARGING DETECTION:
+   - Compares internal voltage on GPIO 4 (ADC1_CH3) and external INA219 bus readings.
+   - When USB is connected, charger output voltage is detected, displaying
+     the dynamic 'CHG' animation on screen and updating the web dashboard.
 ================================================================================

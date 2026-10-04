@@ -8,8 +8,6 @@
 
  */
 
-
-
 // Module Imports
 
 #include "drv8833.h"
@@ -28,8 +26,6 @@
 
 #include <time.h>
 
-
-
 // LILYGO T-Display-S3 Button Definitions
 
 #define BTN_LEFT  0   // BOOT Button (GPIO 0)
@@ -42,8 +38,6 @@
 #define LED_PWM_FREQ   5000
 #define LED_PWM_RES    8
 
-
-
 // JGA12-N20 Encoder Definitions & Wire Colors
 
 // - Red Wire    -> Motor Positive (+)  -> DRV8833 OUT1
@@ -54,13 +48,10 @@
 
 // - Blue Wire   -> Encoder GND         -> ESP32 GND
 
-// - Yellow Wire -> Encoder Channel A   -> ESP32 GPIO 10 (Interrupt pin)
-
-// - Green Wire  -> Encoder Channel B   -> ESP32 GPIO 11 (State/Direction pin)
-
-#define ENCODER_PIN_A 11
-
-#define ENCODER_PIN_B 12
+// - Yellow Wire -> Encoder Channel A   -> J4 Pin 2 -> Net IO33 -> ESP32-S3 GPIO 12 (Interrupt pin)
+// - Green Wire  -> Encoder Channel B   -> J4 Pin 3 -> Net IO32 -> ESP32-S3 GPIO 11 (State/Direction pin)
+#define ENCODER_PIN_A 12
+#define ENCODER_PIN_B 11
 
 #define ENCODER_PPR   360.0f  // Gearmotor pulses per output shaft revolution (7 CPR * Gear Ratio)
 
@@ -68,23 +59,20 @@ volatile long encoderTicks = 0;
 
 uint8_t motorVersion = 1;      // 1 = Version 1 (Motor + Encoder), 2 = Version 2 (Motor without Encoder)
 
-
-
 void IRAM_ATTR encoderISR() {
-
-    if (digitalRead(ENCODER_PIN_B) == HIGH) {
-
-        encoderTicks++;
-
-    } else {
-
-        encoderTicks--;
-
+    static unsigned long lastInterruptTime = 0;
+    unsigned long now = micros();
+    // Filter out high-frequency electrical/PWM noise spikes (interrupt bounce)
+    // 150us threshold supports physical speeds up to 1,100 RPM (at 360 PPR), blocking MHz noise
+    if (now - lastInterruptTime > 150) {
+        if (digitalRead(ENCODER_PIN_B) == HIGH) {
+            encoderTicks++;
+        } else {
+            encoderTicks--;
+        }
+        lastInterruptTime = now;
     }
-
 }
-
-
 
 void setMotorVersion(uint8_t version) {
 
@@ -122,8 +110,6 @@ void setMotorVersion(uint8_t version) {
 
 }
 
-
-
 // Global Variables
 
 TaskHandle_t TelemetryTaskHandle;        // FreeRTOS background task handle
@@ -147,8 +133,6 @@ float internalVoltage = 0.0;     // Board-level internal ADC voltage (GPIO 34)
 bool isCharging = false;          // Dynamic USB charging state
 
 unsigned long lastUpdate = 0;
-
-
 
 // Penetration Counter Calibration Variables
 
@@ -229,8 +213,6 @@ void setupLED() {
     ledcWrite(PWM_CHAN_LED, ledBrightness);
 }
 
-
-
 // --- Oscillation Control Variables ---
 
 uint32_t oscillationDurationCW = 2000; // Duration for Clockwise rotation (ms)
@@ -240,8 +222,6 @@ uint32_t oscillationDurationCCW = 2000; // Duration for Counter-Clockwise rotati
 bool oscillationDirectionFwd = true;   // Current direction in oscillation cycle
 
 unsigned long lastOscillationSwitch = 0; // Timer for oscillation
-
-
 
 // --- Button State Variables for Long/Short Press ---
 
@@ -257,23 +237,17 @@ unsigned long bothButtonsPressTime = 0;
 
 bool bothButtonsLongPressHandled = false;
 
-
-
 // --- WiFi Scan State Machine ---
 
 volatile ScanState scanState = SCAN_IDLE;
 
 String initialScanResultsJson = "[]"; // Cache for startup scan results
 
-
-
 // --- Operation State Machine ---
 
 OperationState operationState = IDLE;
 
 volatile AnimationTrigger pendingAnimation = ANIM_NONE;
-
-
 
 // --- Report Generation Variables ---
 
@@ -295,8 +269,6 @@ uint32_t pauseCount = 0;
 
 bool wasSystemEnabled = false; // To detect transitions for pause counting
 
-
-
 // --- NTP Time Variables ---
 
 const char* ntpServer = "pool.ntp.org";
@@ -306,10 +278,6 @@ const long  gmtOffset_sec = 0; // Use 0 for UTC, which is standard for logging
 const int   daylightOffset_sec = 0;
 
 bool timeSynchronized = false; // Flag to ensure we only sync time once per connection
-
-
-
-
 
 // --- Function Prototypes for new functions ---
 
@@ -341,8 +309,6 @@ void showReportAnimation();
 
 void displayGraftFlash(uint32_t count); // Forward declare the new function
 
-
-
 /**
 
  * @brief Callback function for the TJpg_Decoder library.
@@ -361,8 +327,6 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) 
 
 }
 
-
-
 /**
 
  * @brief Displays the startup welcome animation (240x135) centered on display.
@@ -370,36 +334,17 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) 
  */
 
 void showWelcomeAnimation() {
-
     tft.fillScreen(TFT_BLACK);
-
     TJpgDec.setJpgScale(1);
-
     TJpgDec.setSwapBytes(true);
-
     TJpgDec.setCallback(tft_output);
 
-
-
-    int16_t xOffset = (tft.width() > 240) ? (tft.width() - 240) / 2 : 0;
-
-    int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
-
-
-
     for (int i = 0; i < WELCOME_FRAMES; i++) {
-
-        TJpgDec.drawFsJpg(xOffset, yOffset, "/welcome_" + String(i) + ".jpg");
-
+        TJpgDec.drawFsJpg(0, 0, "/welcome_" + String(i) + ".jpg");
         delay(20);
-
     }
-
     // Retain the final frame smoothly until updateUI() paints the active dashboard
-
 }
-
-
 
 /**
 
@@ -408,41 +353,21 @@ void showWelcomeAnimation() {
  */
 
 void showStartOperationAnimation() {
-
     tft.fillScreen(TFT_WHITE);
-
     TJpgDec.setJpgScale(1);
-
     TJpgDec.setSwapBytes(true);
-
     TJpgDec.setCallback(tft_output);
 
-
-
-    int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
-
-    int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
-
-
-
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
     for (int i = 0; i < START_OP_FRAMES; i++) {
-
         if (safetyTripped || lowBatteryTripped) break; // Emergency safety abort
-
-        TJpgDec.drawFsJpg(xOffset, yOffset, "/hair_transplant_" + String(i) + ".jpg");
-
+        TJpgDec.drawFsJpg(xOffset, 0, "/hair_transplant_" + String(i) + ".jpg");
         delay(15);
-
-
+        dnsServer.processNextRequest();
         server.handleClient();
-
     }
-
     tft.fillScreen(TFT_BLACK);
-
 }
-
-
 
 /**
 
@@ -451,41 +376,21 @@ void showStartOperationAnimation() {
  */
 
 void showStopOperationAnimation() {
-
     tft.fillScreen(TFT_WHITE);
-
     TJpgDec.setJpgScale(1);
-
     TJpgDec.setSwapBytes(true);
-
     TJpgDec.setCallback(tft_output);
 
-
-
-    int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
-
-    int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
-
-
-
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
     for (int i = 0; i < STOP_OP_FRAMES; i++) {
-
         if (safetyTripped || lowBatteryTripped) break;
-
-        TJpgDec.drawFsJpg(xOffset, yOffset, "/hair_" + String(i) + ".jpg");
-
+        TJpgDec.drawFsJpg(xOffset, 0, "/hair_" + String(i) + ".jpg");
         delay(15);
-
-
+        dnsServer.processNextRequest();
         server.handleClient();
-
     }
-
     tft.fillScreen(TFT_BLACK);
-
 }
-
-
 
 /**
 
@@ -494,41 +399,21 @@ void showStopOperationAnimation() {
  */
 
 void showReportAnimation() {
-
     tft.fillScreen(TFT_WHITE);
-
     TJpgDec.setJpgScale(1);
-
     TJpgDec.setSwapBytes(true);
-
     TJpgDec.setCallback(tft_output);
 
-
-
-    int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
-
-    int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
-
-
-
+    const int16_t xOffset = (tft.width() - 135) / 2; // 52
     for (int i = 0; i < REPORT_FRAMES; i++) {
-
         if (safetyTripped || lowBatteryTripped) break;
-
-        TJpgDec.drawFsJpg(xOffset, yOffset, "/report_" + String(i) + ".jpg");
-
+        TJpgDec.drawFsJpg(xOffset, 0, "/report_" + String(i) + ".jpg");
         delay(20);
-
-
+        dnsServer.processNextRequest();
         server.handleClient();
-
     }
-
     tft.fillScreen(TFT_BLACK);
-
 }
-
-
 
 /**
 
@@ -542,15 +427,11 @@ void telemetryTaskCode(void * pvParameters) {
 
     Serial.printf("Real-time telemetry and safety task running on Core: %d\n", xPortGetCoreID());
 
-    
-
     // We execute the telemetry/safety loop at 100Hz (every 10ms)
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
     const TickType_t xFrequency = pdMS_TO_TICKS(10); 
-
-    
 
     while (true) {
 
@@ -558,37 +439,25 @@ void telemetryTaskCode(void * pvParameters) {
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-        
-
         // 1. Read calibrated electrical telemetry (Current and Voltage)
 
         readINA219(batteryVoltage, batteryCurrent);
-
-        
 
         // 2. Perform fast safety checks (Overcurrent and Low Voltage trips)
 
         handleSafetyChecks();
 
-        
-
         // 3. Perform speed control calculations and ramp outputs
 
         handleMotorControl();
-
-        
 
         // 4. Sample baseline variables for self-calibration
 
         handleCalibration();
 
-        
-
         // 5. Evaluate motor RPM and battery state of charge
 
         calculateTelemetry();
-
-        
 
         // 6. Run the Sensor-Fusion graft counter algorithm
 
@@ -598,13 +467,9 @@ void telemetryTaskCode(void * pvParameters) {
 
 }
 
-
-
 void setup() {
 
     Serial.begin(115200);
-
-
 
     // Power on T-Display-S3 onboard peripherals (LCD Screen, Battery divider)
 
@@ -612,31 +477,21 @@ void setup() {
 
     digitalWrite(15, HIGH); // Keeping HIGH is required to power the onboard LCD screen!
 
-    
-
     // Enable LCD Backlight (GPIO 38) for battery power keep-alive
 
     pinMode(38, OUTPUT);
 
     digitalWrite(38, HIGH); // Turn on the backlight!
 
-    
-
     delay(50); // Allow power rail to stabilize
-
-    
 
     // Initialize NVM Storage
 
     preferences.begin("hpp_v1", false);
 
-    
-
     // Initialize Characterized ADC Calibration
 
     setupINA219();
-
-    
 
     // Load saved values, or use defaults if not found
 
@@ -645,8 +500,6 @@ void setup() {
     screenSwitchTime = preferences.getUInt("scrTime", 5000);
 
     if (screenSwitchTime < 1000) screenSwitchTime = 5000; // Sanity check for rotation
-
-    
 
     deepSleepTimeoutMs = preferences.getUInt("sleepTime", 900000);
 
@@ -672,25 +525,15 @@ void setup() {
 
     oscillationDurationCCW = preferences.getUInt("oscDurCcw", 2000);
 
-    
-
     // Initialize Display
 
     setupOLED();
-
-
-
-
-
-
 
     // Load and initialize Motor Version (1 = Version 1: Motor + Encoder, 2 = Version 2: Motor without Encoder)
 
     motorVersion = preferences.getUChar("motVer", 1); // Default to 1
 
     setMotorVersion(motorVersion);
-
-
 
     // Initialize SPIFFS and play animation
 
@@ -718,8 +561,6 @@ void setup() {
 
     }
 
-
-
     // Initialize the motor driver pins
 
     setupDRV8833();
@@ -728,27 +569,19 @@ void setup() {
     ledBrightness = preferences.getUChar("ledBri", 0);
     setupLED();
 
-
-
     // Setup button pins with internal pull-ups
 
     pinMode(BTN_LEFT, INPUT_PULLUP);
 
     pinMode(BTN_RIGHT, INPUT_PULLUP);
 
-    
-
     // Setup Web Server and Access Point immediately (non-blocking)
 
     setupWeb(); 
 
-
-
     // Initial sensor read to seed the EMA filter
 
     readINA219(batteryVoltage, batteryCurrent);
-
-
 
     // Load report data from NVM
 
@@ -761,8 +594,6 @@ void setup() {
     patientMobile = preferences.getString("pMob", "N/A");
 
     doctorName = preferences.getString("pDoc", "N/A");
-
-
 
     // Spin up real-time telemetry task pinned to Core 0 (Priority 3 - Higher than normal)
 
@@ -786,8 +617,6 @@ void setup() {
 
     Serial.println(F("Real-time telemetry and safety task launched on Core 0."));
 
-
-
     // Synchronize timers to current timestamp
 
     lastInteractionTime = millis();
@@ -796,13 +625,9 @@ void setup() {
 
     lastScreenSwitch = millis();
 
-
-
     // Immediately display the active Surgical Dashboard (eliminates 5-second black screen)
 
     updateUI();
-
-
 
     // Launch background asynchronous WiFi scan
 
@@ -812,8 +637,6 @@ void setup() {
 
 }
 
-
-
 void enterDeepSleep() {
 
     Serial.println(F("Entering Deep Sleep to save battery..."));
@@ -821,8 +644,6 @@ void enterDeepSleep() {
     setMotorSpeed(0);
 
     ledcWrite(PWM_CHAN_LED, 0); // Turn off LED during deep sleep
-
-    
 
     tft.fillScreen(TFT_BLACK);
 
@@ -836,8 +657,6 @@ void enterDeepSleep() {
 
     delay(2500); // Give user time to read
 
-    
-
     tft.fillScreen(TFT_BLACK);
 
     digitalWrite(38, LOW); // Turn off backlight
@@ -847,8 +666,6 @@ void enterDeepSleep() {
     esp_deep_sleep_start();
 
 }
-
-
 
 void loop() {
 
@@ -860,12 +677,8 @@ void loop() {
 
     }
 
-
-
-
+    dnsServer.processNextRequest(); // Handle Captive Portal DNS queries
     server.handleClient(); // Process web requests on Core 1
-
-
 
     // Check for pending animations triggered via web or physical buttons
 
@@ -901,8 +714,6 @@ void loop() {
 
     }
 
-
-
     // Dynamic UI interval: fast (30ms ~33 FPS) during screensaver for smooth animation, 100ms during normal operation
 
     bool inScreensaver = (!inMenuMode && !systemEnabled && abs(motorSpeed) <= 10 && (millis() - lastInteractionTime > 15000));
@@ -912,8 +723,6 @@ void loop() {
     if (millis() - lastUpdate >= LOOP_INTERVAL) {
 
         lastUpdate = millis(); // Refresh timestamp for dynamic interval
-
-
 
         // --- Robust WiFi Status Handling ---
 
@@ -950,8 +759,6 @@ void loop() {
             }
 
         }
-
-
 
         // --- WiFi Scan State Machine ---
 
@@ -991,13 +798,9 @@ void loop() {
 
         }
 
-
-
         handleButtons(); // Check for button presses on Core 1
 
         updateUI();      // Refresh local TFT Display on Core 1
-
-
 
         // Debug Heartbeat: Verifies the code hasn't frozen
 
@@ -1009,21 +812,15 @@ void loop() {
 
 }
 
-
-
 void handleButtons() {
 
     const long LONG_PRESS_DURATION = 1000; // 1s for long press
 
     const long DEBOUNCE_DELAY = 50;      // 50ms debounce
 
-
-
     bool btnLeftState = (digitalRead(BTN_LEFT) == LOW);
 
     bool btnRightState = (digitalRead(BTN_RIGHT) == LOW);
-
-
 
     // --- 1. Check for Dual Long Press (Menu Mode Toggle) or Dual Quick Press (LED Toggle) ---
 
@@ -1071,8 +868,6 @@ void handleButtons() {
 
     }
 
-
-
     // --- 2. Handle Menu Mode Navigation & Control ---
 
     if (inMenuMode) {
@@ -1110,8 +905,6 @@ void handleButtons() {
             btnLeftPressTime = 0; btnLeftLongPressHandled = false;
 
         }
-
-
 
         // Right Button (Modify/Select Item)
 
@@ -1199,8 +992,6 @@ void handleButtons() {
 
     }
 
-
-
     // --- 3. Handle Normal Single Button Presses (Context-Aware) ---
 
     if (oscillatingMode) {
@@ -1287,8 +1078,6 @@ void handleButtons() {
 
         const uint8_t speedStep = 10; // Speed increment/decrement step
 
-
-
         // --- Left Button Logic (Decrease Speed / Pause Operation) ---
 
         if (btnLeftState) {
@@ -1354,8 +1143,6 @@ void handleButtons() {
             btnLeftPressTime = 0; btnLeftLongPressHandled = false; // Reset state
 
         }
-
-
 
         // --- Right Button Logic (Increase Speed / Start Operation) ---
 
@@ -1429,8 +1216,6 @@ void handleButtons() {
 
 }
 
-
-
 void handleSafetyChecks() {
 
     if (batteryCurrent > maxCurrentThreshold) {
@@ -1448,8 +1233,6 @@ void handleSafetyChecks() {
         }
 
     }
-
-
 
     if (batteryVoltage < minVoltageThreshold && batteryVoltage > 2.5) {
 
@@ -1469,8 +1252,6 @@ void handleSafetyChecks() {
 
 }
 
-
-
 void handleMotorControl() {
 
     if ((safetyTripped || lowBatteryTripped) && !debugMode) {
@@ -1489,8 +1270,6 @@ void handleMotorControl() {
 
             uint32_t currentPhaseDuration = oscillationDirectionFwd ? oscillationDurationCW : oscillationDurationCCW;
 
-
-
             if (millis() - lastOscillationSwitch > currentPhaseDuration) {
 
                 oscillationDirectionFwd = !oscillationDirectionFwd; // Switch direction
@@ -1501,11 +1280,7 @@ void handleMotorControl() {
 
             }
 
-
-
             targetSpeed = oscillationDirectionFwd ? webBaseSpeed : -webBaseSpeed;
-
-
 
         } else {
 
@@ -1531,8 +1306,6 @@ void handleMotorControl() {
 
         }
 
-        
-
         // Shared ramp logic for both modes
 
         const int16_t RAMP_STEP = 10;
@@ -1551,8 +1324,6 @@ void handleMotorControl() {
 
         }
 
-
-
         if (!systemEnabled) {
 
             motorSpeed = 0; // Ensure motor is fully off
@@ -1564,8 +1335,6 @@ void handleMotorControl() {
     }
 
 }
-
-
 
 void handleCalibration() {
 
@@ -1592,8 +1361,6 @@ void handleCalibration() {
                 Serial.println(F("Motor at speed. Starting baseline calibration..."));
 
             }
-
-
 
             if (millis() - calibrationStartTime < 2000) { // Calibrate for 2 seconds
 
@@ -1629,8 +1396,6 @@ void handleCalibration() {
 
 }
 
-
-
 /**
 
  * @brief Reads the TTGO board's internal battery voltage (via GPIO 34 and GPIO 14) using esp_adc_cal characterized readings.
@@ -1645,8 +1410,6 @@ float readInternalBatteryVoltage() {
 
     uint32_t mv = analogReadMilliVolts(4);
 
-    
-
     // The onboard divider is 100k/100k (ratio 1:2), so multiply by 2.0.
 
     float volt = (mv / 1000.0f) * 2.0f;
@@ -1655,13 +1418,9 @@ float readInternalBatteryVoltage() {
 
 }
 
-
-
 void calculateTelemetry() {
 
     batteryPower = batteryVoltage * batteryCurrent;
-
-
 
     if (motorVersion == 1) {
 
@@ -1677,8 +1436,6 @@ void calculateTelemetry() {
 
         interrupts();
 
-
-
         // Calculate actual RPM from encoder ticks
 
         static unsigned long lastRPMCalcTime = 0;
@@ -1689,15 +1446,11 @@ void calculateTelemetry() {
 
         if (dt == 0) dt = 1; // Prevent division by zero
 
-
-
         if (systemEnabled && abs(motorSpeed) > 10) {
 
             float shaftRevs = abs(ticks) / ENCODER_PPR;
 
             uint32_t measuredRPM = (uint32_t)(shaftRevs * (60000.0f / dt));
-
-            
 
             // Low pass filter to smooth out noise (30% new value, 70% previous)
 
@@ -1733,17 +1486,11 @@ void calculateTelemetry() {
 
     }
 
-
-
     // Read the internal battery voltage
 
     internalVoltage = readInternalBatteryVoltage();
 
-
-
     bool isBatteryConnected = (batteryVoltage > 2.5);
-
-    
 
     // Compute battery percentage based on the actual battery terminal voltage (MAX471)
 
@@ -1758,8 +1505,6 @@ void calculateTelemetry() {
         batteryPercent = 0;
 
     }
-
-
 
     // Charging & USB connection detection logic:
 
@@ -1783,23 +1528,21 @@ void calculateTelemetry() {
 
 }
 
-
-
 void handleGraftCounter() {
 
     // In oscillation mode, we can ignore the calibrationNeeded flag as the baseline is relatively stable.
 
     bool canCount = (oscillatingMode) ? true : !calibrationNeeded;
 
+        // In oscillation mode, ignore any current spikes during the direction change transient (blanking period of 400ms)
+    bool isTransitioning = (oscillatingMode && (millis() - lastOscillationSwitch < 400));
 
-
-    if (systemEnabled && abs(motorSpeed) > 50 && canCount && baselineCurrent > 0.05) {
+    // Lowered baselineCurrent threshold from 0.05 to 0.005 (5mA) to support low-power/efficient N20 motors
+    if (systemEnabled && abs(motorSpeed) > 50 && canCount && baselineCurrent > 0.005 && !isTransitioning) {
 
         float dynamicSpikeThreshold = baselineCurrent + penetrationOffset;
 
         float dynamicFallBackThreshold = dynamicSpikeThreshold - penetrationHysteresis;
-
-
 
         // Speed Dip Verification:
 
@@ -1832,8 +1575,6 @@ void handleGraftCounter() {
             isSpeedDipped = true;
 
         }
-
-
 
         // SENSOR FUSION DECISION:
 
@@ -1875,47 +1616,31 @@ void handleGraftCounter() {
 
 }
 
-
-
 void updateUI() {
-
-    if (millis() - lastScreenSwitch > screenSwitchTime) {
-
-        int maxScreens = 5;
-
-        if (patientName != "N/A") {
-
-            maxScreens = 6; // Add patient screen if a patient is selected
-
+    // Only auto-cycle screens if the motor is NOT running to allow continuous surgery monitoring
+    if (!systemEnabled || abs(motorSpeed) <= 10) {
+        if (millis() - lastScreenSwitch > screenSwitchTime) {
+            int maxScreens = 5; // 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics
+            if (patientName != "N/A") {
+                maxScreens = 6; // Add patient screen (index 5) if a patient is selected
+            }
+            currentScreen = (currentScreen + 1) % maxScreens;
+            lastScreenSwitch = millis();
         }
-
-        currentScreen = (currentScreen + 1) % maxScreens;
-
-        lastScreenSwitch = millis();
-
+    } else {
+        // Lock screen to 0 (Surgical Drive Dashboard) when motor is actively running 
+        currentScreen = 0;
     }
 
-
-
     String displayIP = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-
     uint8_t clients = WiFi.softAPgetStationNum();
-
     bool isBatteryConnected = (batteryVoltage > 2.5);
 
-    
-
-    refreshOLED(motorSpeed, batteryVoltage, batteryCurrent, safetyTripped, lowBatteryTripped, 
-
-                estimatedRPM, batteryPower, isBatteryConnected, batteryPercent, isCharging, 
-
+    refreshOLED(motorSpeed, batteryVoltage, batteryCurrent, safetyTripped, lowBatteryTripped,
+                estimatedRPM, batteryPower, isBatteryConnected, batteryPercent, isCharging,
                 currentScreen, displayIP, clients, debugMode, penetrationCount, wifiConnecting,
-
                 oscillatingMode, oscillationDurationCW, oscillationDurationCCW, patientName, patientAge, patientNationality);
-
 }
-
-
 
 /**
 

@@ -24,15 +24,15 @@
 #define LED_PWM_FREQ   5000
 #define LED_PWM_RES    8
 
-// JGA12-N20 Encoder Definitions & Wire Colors
-// - Red Wire    -> Motor Positive (+)  -> MAX1508 (MX1508) OUT1
-// - White Wire  -> Motor Negative (-)  -> MAX1508 (MX1508) OUT2
-// - Black Wire  -> Encoder VCC (3.3V)  -> ESP32 3V3
-// - Blue Wire   -> Encoder GND         -> ESP32 GND
-// - Yellow Wire -> Encoder Channel A   -> ESP32 GPIO 25 (Interrupt pin)
-// - Green Wire  -> Encoder Channel B   -> ESP32 GPIO 26 (State/Direction pin)
-#define ENCODER_PIN_A 25
-#define ENCODER_PIN_B 26
+// JGA12-N20 Encoder Definitions & Wire Colors on Metanoia Board (Header J4)
+// - Red Wire    -> Motor Positive (+)  -> MX1508 OUT1 (J3 Pin 1)
+// - White Wire  -> Motor Negative (-)  -> MX1508 OUT2 (J3 Pin 2)
+// - Black Wire  -> Encoder VCC (3.3V)  -> J4 Pin 4 (+3.3V)
+// - Blue Wire   -> Encoder GND         -> J4 Pin 1 (GND)
+// - Yellow Wire -> Encoder Channel A   -> J4 Pin 2 -> Net IO33 -> ESP32 GPIO 33 (Interrupt pin)
+// - Green Wire  -> Encoder Channel B   -> J4 Pin 3 -> Net IO32 -> ESP32 GPIO 32 (State/Direction pin)
+#define ENCODER_PIN_A 33
+#define ENCODER_PIN_B 32
 #define ENCODER_PPR   360.0f  // Gearmotor pulses per output shaft revolution (7 CPR * Gear Ratio)
 volatile long encoderTicks = 0;
 uint8_t motorVersion = 1;      // 1 = Version 1 (Motor + Encoder), 2 = Version 2 (Motor without Encoder)
