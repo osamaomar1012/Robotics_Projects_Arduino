@@ -14,8 +14,6 @@
 
 #define WEB_SERVER_H
 
-
-
 #include <WiFi.h>
 
 #include <WebServer.h>
@@ -25,10 +23,8 @@
 #include <FS.h>
 
 #include <ArduinoJson.h>
-
-
-
-
+#include <ESPmDNS.h>
+#include <DNSServer.h>
 
 // WiFi Credentials - Update these for your network
 
@@ -40,11 +36,8 @@ const char* ssid_ap  = "HPP_CONTROL_V1";
 
 const char* pass_ap  = "12345678";
 
-
-
 WebServer server(80);
-
-
+DNSServer dnsServer;
 
 // Externs to link with main project globals
 
@@ -99,8 +92,6 @@ extern void setLEDBrightness(uint8_t brightness);
 extern void displayWebConfirmation(String msg); // Function to display confirmation on OLED
 
 extern String getFormattedDate(); // Function to get date from NTP
-
-
 
 // WiFi Config Page HTML
 
@@ -170,11 +161,7 @@ const char WIFI_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         ##WIFI_STATUS_BOX##
-
-
 
         <div class="card">
 
@@ -308,8 +295,6 @@ const char WIFI_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 // Detailed Readings Page
 
 const char READINGS_HTML[] PROGMEM = R"=====(
@@ -402,8 +387,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <div class="card" style="flex-direction: column; padding: 18px 25px; gap: 8px;">
 
             <div style="font-weight: bold; font-size: 0.8em; color: #38bdf8; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; width:100%; text-align: left; margin-bottom: 10px;">Live Telemetry Plot</div>
@@ -421,8 +404,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
         <div class="card">
 
@@ -506,8 +487,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
         }
 
-
-
         // --- Real-time Rolling Graph Logic ---
 
         const canvas = document.getElementById('telemetryGraph');
@@ -522,13 +501,9 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
         const rpmData = [];
 
-
-
         function drawGraph() {
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            
 
             // Draw visual gridlines
 
@@ -548,8 +523,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
             }
 
-
-
             // Render scaled data series
 
             plotSeries(vData, '#38bdf8', 30);    // Scale Voltage (e.g. 4V -> 120px)
@@ -559,8 +532,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
             plotSeries(rpmData, '#10b981', 0.15); // Scale RPM (e.g. 800 RPM -> 120px)
 
         }
-
-
 
         function plotSeries(data, color, scale) {
 
@@ -572,8 +543,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
             ctx.beginPath();
 
-            
-
             const dx = canvas.width / (maxPoints - 1);
 
             for (let i = 0; i < data.length; i++) {
@@ -583,8 +552,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 const scaledVal = data[i] * scale;
 
                 const y = canvas.height - Math.min(scaledVal, canvas.height - 5);
-
-                
 
                 if (i === 0) ctx.moveTo(x, y);
 
@@ -596,8 +563,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
         }
 
-
-
         setInterval(() => {
 
             fetch('/telemetry').then(r => r.json()).then(data => {
@@ -605,8 +570,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 document.getElementById('v').innerText = data.v.toFixed(2) + 'V';
 
                 document.getElementById('v_int').innerText = data.v_int.toFixed(2) + 'V';
-
-                
 
                 let statusText = "DISCHARGING (Battery)";
 
@@ -623,8 +586,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 document.getElementById('pwr_status').innerText = statusText;
 
                 document.getElementById('pwr_status').style.color = statusColor;
-
-
 
                 document.getElementById('i').innerText = data.i + 'A';
 
@@ -652,27 +613,19 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 
                 }
 
-
-
                 // Append and roll the telemetry arrays
 
                 vData.push(data.v);
 
                 if (vData.length > maxPoints) vData.shift();
 
-
-
                 iData.push(data.i);
 
                 if (iData.length > maxPoints) iData.shift();
 
-
-
                 rpmData.push(data.rpm);
 
                 if (rpmData.length > maxPoints) rpmData.shift();
-
-
 
                 drawGraph();
 
@@ -687,8 +640,6 @@ const char READINGS_HTML[] PROGMEM = R"=====(
 </html>
 
 )=====";
-
-
 
 // Configuration & Safety Page
 
@@ -743,8 +694,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
         .link-footer { margin-top: 25px; display: block; color: #38bdf8; text-decoration: none; font-size: 0.85em; }
 
         .link-footer:hover { text-decoration: underline; }
-
-
 
         /* Submenu Navigation Styles */
 
@@ -906,8 +855,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Main Settings Menu -->
 
         <div id="mainMenu">
@@ -958,8 +905,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Screen & Power Config Submenu -->
 
         <div id="screenConfig" class="submenu-view">
@@ -1005,8 +950,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
         <!-- Motor Config Submenu -->
 
@@ -1064,8 +1007,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Safety Config Submenu -->
 
         <div id="safetyConfig" class="submenu-view">
@@ -1098,8 +1039,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Motor Hardware Version Submenu -->
 
         <div id="motorHardConfig" class="submenu-view">
@@ -1122,8 +1061,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Security Config Submenu -->
 
         <div id="securityConfig" class="submenu-view">
@@ -1144,8 +1081,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Report Config Submenu -->
 
         <div id="reportConfig" class="submenu-view">
@@ -1161,8 +1096,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
         <!-- Reset to Factory Settings Submenu -->
 
@@ -1216,8 +1149,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
         }
 
-
-
         function showSubMenu(id, title) {
 
             document.getElementById('mainMenu').style.display = 'none';
@@ -1239,8 +1170,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
             document.getElementById('configHeader').innerText = 'SETTINGS';
 
         }
-
-        
 
         setInterval(() => {
 
@@ -1282,11 +1211,7 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 
                 }
 
-                
-
                 document.getElementById('speedDipRow').style.display = (data.motVer === 1) ? 'flex' : 'none';
-
-
 
                 let b = document.getElementById('db');
 
@@ -1315,8 +1240,6 @@ const char CONFIG_HTML[] PROGMEM = R"=====(
 </html>
 
 )=====";
-
-
 
 // Template Editor Page
 
@@ -1426,8 +1349,6 @@ const char EDITOR_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 // Report Page HTML
 
 const char REPORT_HTML[] PROGMEM = R"=====(
@@ -1450,8 +1371,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         .report-container { max-width: 780px; margin: 10px auto; background: white; padding: 40px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.05); box-sizing: border-box; position: relative; }
 
-        
-
         .report-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
 
         .header-left { text-align: left; }
@@ -1464,13 +1383,9 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         .header-right img { max-width: 140px; max-height: 60px; object-fit: contain; }
 
-        
-
         .section { margin-bottom: 25px; }
 
         .section h2 { font-size: 14px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 2px solid #f1f5f9; padding-bottom: 6px; margin-bottom: 15px; text-align: left; }
-
-        
 
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -1479,8 +1394,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
         .grid-item .label { font-weight: 600; color: #64748b; display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
 
         .grid-item .value { font-size: 14px; font-weight: 700; color: #0f172a; }
-
-        
 
         .metrics-card { background: linear-gradient(135deg, #0f172a, #1e293b); color: white; padding: 25px; border-radius: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.05); }
 
@@ -1492,33 +1405,23 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         .metric-item .value { font-size: 24px; font-weight: 800; color: #38bdf8; font-family: 'Courier New', Courier, monospace; }
 
-        
-
         .remarks-section { border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; background: #fff; margin-bottom: 30px; text-align: left; }
 
         .remarks-title { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px; }
 
         .remarks-line { height: 1px; background-color: #cbd5e1; margin-top: 25px; margin-bottom: 5px; width: 100%; }
 
-        
-
         .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; margin-top: 40px; }
 
         .signature-box { border-top: 1px solid #cbd5e1; padding-top: 8px; text-align: center; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        
-
         .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
-
-        
 
         .print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; background: #0284c7; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4); font-family: sans-serif; transition: 0.3s; z-index: 1000; text-transform: uppercase; letter-spacing: 1px; }
 
         .print-btn:hover { background: #0369a1; transform: scale(1.02); }
 
         .print-btn:active { transform: scale(0.98); }
-
-        
 
         @media print {
 
@@ -1538,11 +1441,7 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         }
 
-        
-
         @page { size: A4; margin: 20mm; }
-
-        
 
         @media (max-width: 768px) {
 
@@ -1568,8 +1467,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
     <button class="print-btn" onclick="window.print()">&#128438; Print Clinical Report</button>
 
-    
-
     <div class="report-container">
 
     <div class="report-header">
@@ -1589,8 +1486,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
         </div>
 
     </div>
-
-
 
         <div class="section">
 
@@ -1612,8 +1507,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <div class="section">
 
             <h2>Surgical Team</h2>
@@ -1625,8 +1518,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
         <div class="section">
 
@@ -1674,8 +1565,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <div class="remarks-section">
 
             <div class="remarks-title">Clinical Notes & Surgeon Remarks</div>
@@ -1690,8 +1579,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <div class="signature-grid">
 
             <div class="signature-box">Surgeon Signature</div>
@@ -1699,8 +1586,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
             <div class="signature-box">Clinical Stamp / Date</div>
 
         </div>
-
-
 
         <div class="footer">
 
@@ -1712,8 +1597,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
     </div>
 
-
-
     <script>
 
         window.onload = function() {
@@ -1724,15 +1607,11 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
                 let grafts = parseInt(document.getElementById('graftsCount').innerText) || 0;
 
-                
-
                 // Parse operation duration (e.g. "0h 15m 30s")
 
                 let timeText = document.getElementById('opDuration').innerText;
 
                 let hours = 0, minutes = 0, seconds = 0;
-
-                
 
                 let hMatch = timeText.match(/(\d+)\s*h/);
 
@@ -1740,19 +1619,13 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 
                 let sMatch = timeText.match(/(\d+)\s*s/);
 
-                
-
                 if (hMatch) hours = parseInt(hMatch[1]);
 
                 if (mMatch) minutes = parseInt(mMatch[1]);
 
                 if (sMatch) seconds = parseInt(sMatch[1]);
 
-                
-
                 let totalHours = hours + (minutes / 60) + (seconds / 3600);
-
-                
 
                 let rate = 0;
 
@@ -1761,8 +1634,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
                     rate = Math.round(grafts / totalHours);
 
                 }
-
-                
 
                 document.getElementById('graftRate').innerText = rate + " grafts / hour";
 
@@ -1783,8 +1654,6 @@ const char REPORT_HTML[] PROGMEM = R"=====(
 </html>
 
 )=====";
-
-
 
 // Report Archive Page
 
@@ -1876,8 +1745,6 @@ const char ARCHIVE_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 // New Add Patient Page
 
 const char ADD_PATIENT_HTML[] PROGMEM = R"=====(
@@ -1962,8 +1829,6 @@ const char ADD_PATIENT_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 // New Patient Info Page
 
 const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
@@ -2011,8 +1876,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
         .link-footer { margin-top: 25px; display: block; color: #38bdf8; text-decoration: none; font-size: 0.85em; }
 
         .link-footer:hover { text-decoration: underline; }
-
-
 
         /* Submenu Navigation Styles */
 
@@ -2174,8 +2037,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Main Patient Menu -->
 
         <div id="mainMenu">
@@ -2202,8 +2063,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <!-- Select Patient Submenu -->
 
         <div id="selectPatientConfig" class="submenu-view">
@@ -2221,8 +2080,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
         <!-- Remove Patient Submenu -->
 
@@ -2243,8 +2100,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
             </div>
 
         </div>
-
-
 
     </div>
 
@@ -2271,8 +2126,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
             document.getElementById('patientHeader').innerText = 'PATIENT MANAGEMENT';
 
         }
-
-
 
         function selectPatient() {
 
@@ -2302,8 +2155,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 
             let patientName = list.options[list.selectedIndex].text;
 
-
-
             if (confirm('Are you sure you want to remove ' + patientName + ' and all their associated reports? This cannot be undone.')) {
 
                 fetch('/removepatient?name=' + patientName).then(() => {
@@ -2323,8 +2174,6 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 </html>
 
 )=====";
-
-
 
 // New Operation Page - Contains all the in-procedure controls
 
@@ -2546,8 +2395,6 @@ const char OPERATION_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 // HTML Content with CSS and JS
 
 const char INDEX_HTML[] PROGMEM = R"=====(
@@ -2638,8 +2485,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
         </div>
 
-        
-
         <div class="card">
 
             <div class="label">OPERATION CONTROL</div>
@@ -2688,8 +2533,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
         </div>
 
-
-
         <div class="nav-grid">
 
             <a href="/patientinfo" class="btn btn-dir" style="text-decoration:none; background: #0ea5e9; grid-column: 1 / span 2;">Patient Management</a>
@@ -2707,8 +2550,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
         <a href="/help" target="_blank" rel="noopener noreferrer" class="link-footer" style="margin-top: 15px; color: #0ea5e9;">Help & Guidelines</a>
 
     </div>
-
-
 
     <script>
 
@@ -2740,8 +2581,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
         }
 
-
-
         setInterval(() => {
 
             fetch('/telemetry').then(r => r.json()).then(data => {
@@ -2750,11 +2589,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
                 document.getElementById('btnStart').disabled = (data.pName === 'N/A' || data.opState !== 0);
 
-
-
                 document.getElementById('alarmBox').style.display = (data.trip) ? 'block' : 'none';                
-
-                
 
                 // Control Logo Spinning Animation based on real-time motor speed
 
@@ -2771,8 +2606,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
                     logo.style.animation = 'none';
 
                 }
-
-
 
                 // Patient Card
 
@@ -2810,8 +2643,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
                     }
 
                 }
-
-
 
                 // Operation State Buttons
 
@@ -2873,8 +2704,6 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
 )=====";
 
-
-
 void handleRoot() { server.send(200, "text/html", INDEX_HTML); }
 
 void handleOperation() { 
@@ -2892,8 +2721,6 @@ void handleOperation() {
         return;
 
     }
-
-
 
     // The new operation page needs the same dynamic JS as the main page.
 
@@ -2981,8 +2808,6 @@ void handleViewReport();
 
 void handleOperation();
 
-
-
 String reportProcessor(const String& var) {
 
     if (var == "PATIENT_NAME") return patientName;
@@ -3035,8 +2860,6 @@ String reportProcessor(const String& var) {
 
 }
 
-
-
 String archiveProcessor(const String& var) {
 
     if (var == "REPORT_LIST") return server.arg("list");
@@ -3045,15 +2868,11 @@ String archiveProcessor(const String& var) {
 
 }
 
-
-
 void handleWifi() {
 
     String pageContent = WIFI_HTML;
 
     String statusHtml = "";
-
-    
 
     if (WiFi.status() == WL_CONNECTED) {
 
@@ -3077,23 +2896,17 @@ void handleWifi() {
 
     }
 
-    
-
     pageContent.replace("##WIFI_STATUS_BOX##", statusHtml);
 
     server.send(200, "text/html", pageContent);
 
 }
 
-
-
 void handleInitialScanResults() {
 
     server.send(200, "application/json", initialScanResultsJson);
 
 }
-
-
 
 void handleScan() {
 
@@ -3105,8 +2918,6 @@ void handleScan() {
 
 }
 
-
-
 void handleScanResults() {
 
     if (scanState != SCAN_COMPLETE) {
@@ -3116,8 +2927,6 @@ void handleScanResults() {
         return;
 
     }
-
-
 
     int n = WiFi.scanComplete(); // Get the number of networks found
 
@@ -3141,8 +2950,6 @@ void handleScanResults() {
 
 }
 
-
-
 void handleSaveWifi() {
 
     if (server.hasArg("ssid")) {
@@ -3154,8 +2961,6 @@ void handleSaveWifi() {
         preferences.putString("sta_ssid", s);
 
         preferences.putString("sta_pass", p);
-
-        
 
         server.send(200, "text/html", "<html><body style='background:#1a1a1a;color:white;text-align:center;'><h2>Settings Saved!</h2><p>Restarting to connect to: " + s + "</p></body></html>");
 
@@ -3170,8 +2975,6 @@ void handleSaveWifi() {
     }
 
 }
-
-
 
 void handleTelemetry() {
 
@@ -3261,8 +3064,6 @@ void handleTelemetry() {
 
 }
 
-
-
 void handleControl() {
 
     lastInteractionTime = millis();
@@ -3270,8 +3071,6 @@ void handleControl() {
     String cmd = server.arg("cmd");
 
     String val = server.arg("val");
-
-
 
     if (cmd == "start_op") {
 
@@ -3561,8 +3360,6 @@ void handleControl() {
 
         setLEDBrightness(0);
 
-
-
         // Save defaults to NVM
 
         preferences.putFloat("maxCurr", 2.5);
@@ -3588,8 +3385,6 @@ void handleControl() {
         preferences.putString("sta_pass", pass_sta);
 
         preferences.remove("ap_pass"); // Reset AP password to default
-
-
 
         displayWebConfirmation("Factory Reset...");
 
@@ -3627,8 +3422,6 @@ void handleControl() {
 
         pendingAnimation = ANIM_STOP;
 
-
-
         // --- Automatically save the report ---
 
         StaticJsonDocument<512> doc;
@@ -3651,8 +3444,6 @@ void handleControl() {
 
         doc["date"] = getFormattedDate();
 
-
-
         String pNameSanitized = patientName;
 
         pNameSanitized.replace(" ", "_");
@@ -3660,8 +3451,6 @@ void handleControl() {
         if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
 
         String filename = "/reports/" + pNameSanitized + "_" + String(millis()) + ".json";
-
-
 
         fs::File file = SPIFFS.open(filename, FILE_WRITE);
 
@@ -3697,19 +3486,13 @@ void handleControl() {
 
         doc["pauses"] = pauseCount;
 
-
-
         unsigned long totalSeconds = operationTimeAccumulator / 1000;
 
         // No need to add current time, stop_op handles the final accumulation
 
         doc["opTime"] = totalSeconds;
 
-
-
         doc["date"] = getFormattedDate();
-
-
 
         // 2. Generate a unique filename in the /reports directory
 
@@ -3720,8 +3503,6 @@ void handleControl() {
         if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
 
         String filename = "/reports/" + pNameSanitized + "_" + String(millis()) + ".json";
-
-
 
         // 3. Write the JSON file to SPIFFS
 
@@ -3875,13 +3656,9 @@ void handleControl() {
 
     }
 
-
-
     server.send(200, "text/plain", "OK");
 
 }
-
-
 
 void handleArchive() {
 
@@ -3909,8 +3686,6 @@ void handleArchive() {
 
     if (list == "") list = "<p>No reports saved yet.</p>";
 
-    
-
     String pageContent = ARCHIVE_HTML;
 
     pageContent.replace("##REPORT_LIST##", list);
@@ -3918,8 +3693,6 @@ void handleArchive() {
     server.send(200, "text/html", pageContent);
 
 } 
-
-
 
 // Self-contained Base64 encoding function
 
@@ -3938,8 +3711,6 @@ String b64_encode(const uint8_t* data, size_t length) {
     uint8_t char_array_3[3];
 
     uint8_t char_array_4[4];
-
-
 
     while (length--) {
 
@@ -3983,8 +3754,6 @@ String b64_encode(const uint8_t* data, size_t length) {
 
 }
 
-
-
 void handleViewReport() {
 
     if (!server.hasArg("file")) {
@@ -4007,15 +3776,11 @@ void handleViewReport() {
 
     }
 
-
-
     StaticJsonDocument<512> doc;
 
     DeserializationError error = deserializeJson(doc, file);
 
     file.close();
-
-
 
     if (error) {
 
@@ -4025,8 +3790,6 @@ void handleViewReport() {
 
     }
 
-
-
     // Temporarily populate global vars for the reportProcessor
 
     String temp_pName = patientName, temp_pAge = patientAge, temp_pNat = patientNationality, temp_pDoc = doctorName, temp_pMob = patientMobile;
@@ -4034,8 +3797,6 @@ void handleViewReport() {
     uint32_t temp_pCount = penetrationCount, temp_pauseCount = pauseCount;
 
     unsigned long temp_opTime = operationTimeAccumulator;
-
-
 
     patientName = doc["pName"].as<String>();
 
@@ -4057,8 +3818,6 @@ void handleViewReport() {
 
     pendingAnimation = ANIM_REPORT;
 
-
-
     // Read template from SPIFFS
 
     fs::File templateFile = SPIFFS.open("/template/report.html", "r");
@@ -4077,15 +3836,11 @@ void handleViewReport() {
 
     }
 
-    
-
     // Stream the template file directly to the client, using the reportProcessor
 
     // to replace placeholders on-the-fly. This is memory efficient.
 
     // server.streamFile(templateFile, "text/html"); // This does not process placeholders.
-
-
 
     // Read the template into a string, replace placeholders, and send.
 
@@ -4093,15 +3848,11 @@ void handleViewReport() {
 
     templateFile.close();
 
-
-
     // Always use the embedded default SVG logo for reliability.
 
     String defaultLogo = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCI+CiAgPCEtLSBCYWNrZ3JvdW5kIGNpcmNsZSBmb3IgaWNvbiBzdHlsZSAtLT4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NiIgZmlsbD0iI2Y0ZjlmOSIgc3Ryb2tlPSIjMGVhNWU5IiBzdHJva2Utd2lkdGg9IjIiLz4KICAKICA8IS0tIEhhaXIgRm9sbGljbGUvU3RyYW5kcyBiZWluZyBwbGFudGVkIC0tPgogIDxwYXRoIGQ9Ik0gMzIsMzIgQyAyOCwyNSAzMiwxNSA0MCwxMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWUyOTNiIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTSAzNSwzNSBDIDMyLDI4IDM4LDIwIDQ4LDE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMxZTI5M2IiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgCiAgPCEtLSBQZW4gQm9keSAoQW5nbGVkIGZyb20gdG9wIHJpZ2h0IHRvIGJvdHRvbSBsZWZ0KSAtLT4KICA8IS0tIE1haW4gU2hhZnQgLS0+CiAgPHBhdGggZD0iTSA3MiwyMCBMIDc4LDI2IEwgNDYsNTggTCA0MCw1MiBaIiBmaWxsPSIjY2JkNWUxIiBzdHJva2U9IiM0NzU1NjkiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDwhLS0gTWV0YWxsaWMgUmlkZ2VzIC8gR3JpcCBzZWN0aW9uIC0tPgogIDxwYXRoIGQ9Ik0gNDYsNTggTCA0MCw1MiBMIDM3LDU1IEwgNDMsNjEgWiIgZmlsbD0iIzk0YTNiOCIgc3Ryb2tlPSIjNDc1NTY5IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICAKICA8IS0tIFBlbiBUaXAgLyBOZWVkbGUgKENob2kgSW1wbGFudGVyIHN0eWxlIGJldmVsKSAtLT4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NiIgZmlsbD0ibm9uZSIvPgogIDxwYXRoIGQ9Ik0gMzcsNTUgTCAyOSw2MyBMIDMyLDY0IEwgNDMsNjEgWiIgZmlsbD0iI2UyZThmMCIgc3Ryb2tlPSIjNDc1NTY5IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDwhLS0gVWx0cmEtZmluZSBuZWVkbGUgcG9pbnQgLS0+CiAgPGxpbmUgeDE9IjI5IiB5MT0iNjMiIHgyPSIyNCIgeTI9IjY4IiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAKICA8IS0tIFBsdW5nZXIvQnV0dG9uIGF0IHRoZSB0b3AgLS0+CiAgPHBhdGggZD0iTSA3MiwyMCBMIDc4LDI2IEwgODIsMjIgTCA3NiwxNiBaIiBmaWxsPSIjMGVhNWU5IiBzdHJva2U9IiMwMjg0YzciIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIAogIDwhLS0gU2tpbiBMaW5lIC8gVGFyZ2V0IEFyZWEgLS0+CiAgPHBhdGggZD0iTSAxNSw3NSBRIGQ1MCw3MiA4NSw3NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIAogIDwhLS0gTmV3bHkgUGxhbnRlZCBIYWlyIG9uIFNraW4gLS0+CiAgPHBhdGggZD0iTSAyMiw3NCBDIDIwLDY4IDI0LDYyIDI2LDU4IiBmaWxsPSJub25lIiBzdHJva2U9IiM0NzU1NjkiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTSA2MCw3MyBDIDU4LDY2IDY0LDYwIDY4LDU3IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg==";
 
     templateContent.replace("src=\"/img/logo.jpg\"", "src=\"" + defaultLogo + "\"");
-
-
 
     // Manually replace all placeholders using the processor logic
 
@@ -4123,8 +3874,6 @@ void handleViewReport() {
 
     templateContent.replace("##DATE##", reportProcessor("DATE"));
 
-
-
     server.send(200, "text/html", templateContent);
 
     // Restore live global vars
@@ -4135,8 +3884,6 @@ void handleViewReport() {
 
 }
 
-
-
 void handlePatientInfo() {
 
     // 1. Scan for unique patient names
@@ -4146,8 +3893,6 @@ void handlePatientInfo() {
     String uniquePatientFiles[50]; // Array to hold one file for each unique patient
 
     int uniqueCount = 0;
-
-
 
     fs::File root = SPIFFS.open("/reports");
 
@@ -4187,8 +3932,6 @@ void handlePatientInfo() {
 
     }
 
-
-
     // Now, build the options from the unique list
 
     for (int i = 0; i < uniqueCount; i++) {
@@ -4205,8 +3948,6 @@ void handlePatientInfo() {
 
     }
 
-
-
     // 2. Inject the list into the HTML and send
 
     String pageContent = PATIENT_INFO_HTML;
@@ -4217,15 +3958,11 @@ void handlePatientInfo() {
 
 }
 
-
-
 void handleAddNewPatient() {
 
     server.send(200, "text/html", ADD_PATIENT_HTML);
 
 }
-
-
 
 void handleSelectPatient() {
 
@@ -4243,15 +3980,11 @@ void handleSelectPatient() {
 
     if (!file) { server.send(404, "text/plain", "File Not Found"); return; }
 
-
-
     StaticJsonDocument<512> doc;
 
     deserializeJson(doc, file);
 
     file.close();
-
-
 
     patientName = doc["pName"].as<String>();
 
@@ -4267,15 +4000,11 @@ void handleSelectPatient() {
 
 }
 
-
-
 void handleEditor() {
 
     server.send_P(200, "text/html", EDITOR_HTML);
 
 }
-
-
 
 void handleSaveTemplate() {
 
@@ -4309,11 +4038,7 @@ void handleSaveTemplate() {
 
 }
 
-
-
 fs::File uploadFile;
-
-
 
 void handleUpload() {
 
@@ -4357,11 +4082,7 @@ void handleUpload() {
 
 }
 
-
-
 #include "guideline.h"
-
-
 
 void handleHelp() {
 
@@ -4372,8 +4093,6 @@ void handleHelp() {
     server.send_P(200, "text/html", GUIDELINE_HTML);
 
 }
-
-
 
 void createDefaultTemplate() {
 
@@ -4387,8 +4106,6 @@ void createDefaultTemplate() {
 
 }
 
-
-
 void setupWeb() {
 
     // 1. Setup AP Mode
@@ -4398,16 +4115,13 @@ void setupWeb() {
     WiFi.softAP(ssid_ap, current_ap_pass.c_str());
 
     Serial.println("AP Mode Active: " + WiFi.softAPIP().toString());
-
-
+    dnsServer.start(53, "*", WiFi.softAPIP());
 
     // 2. Setup STA Mode using saved credentials or defaults
 
     String s = preferences.getString("sta_ssid", ssid_sta);
 
     String p = preferences.getString("sta_pass", pass_sta);
-
-
 
     if (s.length() > 0) {
 
@@ -4416,8 +4130,6 @@ void setupWeb() {
         WiFi.begin(s.c_str(), p.c_str());
 
     }
-
-
 
     if (!SPIFFS.exists("/reports")) {
 
@@ -4438,8 +4150,6 @@ void setupWeb() {
         SPIFFS.mkdir("/img");
 
     }
-
-    
 
     // Graceful Template Upgrade: Overwrite old Times New Roman template with the new modern one, preserving non-default modifications
 
@@ -4469,15 +4179,11 @@ void setupWeb() {
 
     }
 
-
-
     // 3. Server Routes
 
     server.on("/", handleRoot);
 
     server.on("/config", handleConfig);
-
-    
 
     // Serve static files for editor
 
@@ -4541,8 +4247,6 @@ void setupWeb() {
 
         preferences.putString("pDoc", doctorName);
 
-        
-
         server.sendHeader("Location", "/");
 
         server.send(302, "text/plain", "Patient Selected. Returning to Dashboard...");
@@ -4556,8 +4260,6 @@ void setupWeb() {
         String nameToRemove = server.arg("name");
 
         nameToRemove.replace(" ", "_");
-
-
 
         fs::File root = SPIFFS.open("/reports");
 
@@ -4589,11 +4291,17 @@ void setupWeb() {
 
     server.on("/upload_logo", HTTP_POST, []() { server.send(200, "text/plain", "OK"); }, handleUpload); 
 
+        // 4. Initialize mDNS responder (makes web page accessible at http://elbaseet.local)
+    if (MDNS.begin("elbaseet")) {
+        Serial.println("mDNS responder started: http://elbaseet.local");
+        MDNS.addService("http", "tcp", 80);
+    } else {
+        Serial.println("Error setting up MDNS responder!");
+    }
+
     server.begin();
 
 }
-
-
 
 void handleGetPatientData() {
 
@@ -4617,15 +4325,11 @@ void handleGetPatientData() {
 
     }
 
-
-
     StaticJsonDocument<512> doc;
 
     DeserializationError error = deserializeJson(doc, file);
 
     file.close();
-
-
 
     if (error) {
 
@@ -4642,7 +4346,5 @@ void handleGetPatientData() {
     server.send(200, "application/json", output);
 
 }
-
-
 
 #endif

@@ -339,11 +339,13 @@ void showWelcomeAnimation() {
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tft_output);
 
-    for (int i = 0; i < WELCOME_FRAMES; i++) {
-        TJpgDec.drawFsJpg(0, 0, "/welcome_" + String(i) + ".jpg");
-        delay(20);
+    const int16_t xOffset = (tft.width() > 302) ? (tft.width() - 302) / 2 : 0;
+    const int16_t yOffset = (tft.height() > 170) ? (tft.height() - 170) / 2 : 0;
+
+    // Fast-Forward playback: Step by 2 frames for fast, fluid startup (< 1.3s)
+    for (int i = 0; i < WELCOME_FRAMES; i += 2) {
+        TJpgDec.drawFsJpg(xOffset, yOffset, "/welcome_" + String(i) + ".jpg");
     }
-    // Retain the final frame smoothly until updateUI() paints the active dashboard
 }
 
 /**
@@ -358,11 +360,11 @@ void showStartOperationAnimation() {
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tft_output);
 
-    const int16_t xOffset = (tft.width() - 135) / 2; // 52
-    for (int i = 0; i < START_OP_FRAMES; i++) {
+    const int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
+    const int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
+    for (int i = 0; i < START_OP_FRAMES; i += 2) {
         if (safetyTripped || lowBatteryTripped) break; // Emergency safety abort
-        TJpgDec.drawFsJpg(xOffset, 0, "/hair_transplant_" + String(i) + ".jpg");
-        delay(15);
+        TJpgDec.drawFsJpg(xOffset, yOffset, "/hair_transplant_" + String(i) + ".jpg");
         dnsServer.processNextRequest();
         server.handleClient();
     }
@@ -381,11 +383,11 @@ void showStopOperationAnimation() {
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tft_output);
 
-    const int16_t xOffset = (tft.width() - 135) / 2; // 52
-    for (int i = 0; i < STOP_OP_FRAMES; i++) {
+    const int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
+    const int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
+    for (int i = 0; i < STOP_OP_FRAMES; i += 2) {
         if (safetyTripped || lowBatteryTripped) break;
-        TJpgDec.drawFsJpg(xOffset, 0, "/hair_" + String(i) + ".jpg");
-        delay(15);
+        TJpgDec.drawFsJpg(xOffset, yOffset, "/hair_" + String(i) + ".jpg");
         dnsServer.processNextRequest();
         server.handleClient();
     }
@@ -404,11 +406,11 @@ void showReportAnimation() {
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tft_output);
 
-    const int16_t xOffset = (tft.width() - 135) / 2; // 52
-    for (int i = 0; i < REPORT_FRAMES; i++) {
+    const int16_t xOffset = (tft.width() > 135) ? (tft.width() - 135) / 2 : 0;
+    const int16_t yOffset = (tft.height() > 135) ? (tft.height() - 135) / 2 : 0;
+    for (int i = 0; i < REPORT_FRAMES; i += 2) {
         if (safetyTripped || lowBatteryTripped) break;
-        TJpgDec.drawFsJpg(xOffset, 0, "/report_" + String(i) + ".jpg");
-        delay(20);
+        TJpgDec.drawFsJpg(xOffset, yOffset, "/report_" + String(i) + ".jpg");
         dnsServer.processNextRequest();
         server.handleClient();
     }
@@ -468,6 +470,21 @@ void telemetryTaskCode(void * pvParameters) {
 }
 
 void setup() {
+
+    // 1. IMMEDIATELY DRIVE MOTOR AND LED PINS LOW BEFORE ANYTHING ELSE TO PREVENT BOOT SPIN/FLASH
+    pinMode(MOTOR_IN1, OUTPUT);
+    digitalWrite(MOTOR_IN1, LOW);
+    pinMode(MOTOR_IN2, OUTPUT);
+    digitalWrite(MOTOR_IN2, LOW);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+    gpio_set_pull_mode((gpio_num_t)MOTOR_IN1, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode((gpio_num_t)MOTOR_IN2, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode((gpio_num_t)LED_PIN, GPIO_PULLDOWN_ONLY);
+
+    // Initialize motor driver and LED hardware immediately to duty cycle 0 (OFF)
+    setupDRV8833();
+    setupLED();
 
     Serial.begin(115200);
 
@@ -1154,40 +1171,28 @@ void handleButtons() {
 
             } else if (!btnRightLongPressHandled && (millis() - btnRightPressTime > LONG_PRESS_DURATION)) {
 
-                // LONG PRESS ACTION: START OPERATION
-
+                // LONG PRESS ACTION: START OPERATION (1st time -> FWD) / TOGGLE DIRECTION (subsequent)
                 if (operationState == IDLE) { // Start a new operation
-
                     operationState = RUNNING;
-
                     operationTimeAccumulator = 0;
-
                     pauseCount = 0;
-
                     lastTimeCapture = millis();
-
                     systemEnabled = true; // Also enable the motor system
-
-                    displayWebConfirmation("Operation Started");
-
-                    Serial.println("RIGHT LONG PRESS: Operation Started.");
-
+                    forwardDirection = true; // Always start in FORWARD direction
+                    displayWebConfirmation("Started (FWD)");
+                    Serial.println("RIGHT LONG PRESS: Operation Started (FORWARD).");
                     pendingAnimation = ANIM_START;
-
+                } else if (operationState == RUNNING) { // Already running -> CHANGE DIRECTION
+                    forwardDirection = !forwardDirection; // Toggle Forward <-> Reverse
+                    displayWebConfirmation(forwardDirection ? "Direction: FWD" : "Direction: REV");
+                    Serial.println(forwardDirection ? "RIGHT LONG PRESS: Direction -> FORWARD." : "RIGHT LONG PRESS: Direction -> REVERSE.");
                 } else if (operationState == PAUSED) { // Resume a paused operation
-
                     operationState = RUNNING;
-
                     lastTimeCapture = millis(); // Reset the timer for the new running phase
-
                     systemEnabled = true; // Re-enable the motor system
-
                     displayWebConfirmation("Operation Resumed");
-
                     Serial.println("RIGHT LONG PRESS: Operation Resumed.");
-
                 }
-
                 btnRightLongPressHandled = true; // Mark as handled
 
             }

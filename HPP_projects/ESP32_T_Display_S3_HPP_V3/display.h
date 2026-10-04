@@ -1,9 +1,21 @@
 /**
- * MODULE: Integrated TTGO T-Display (ST7789)
- * DESCRIPTION: This module handles the initialization and UI drawing routines
- *              for the 1.14" ST7789 color TFT display on the TTGO T-Display board.
- *              It uses the TFT_eSPI library.
- * DEPENDENCIES: TFT_eSPI.h, SPI.h
+ * MODULE: Integrated TTGO T-Display & LilyGO T-Display-S3 (ST7789)
+ * DESCRIPTION: 2026 Hybrid Medical UI:
+ *              - Glowing Deep Clinical Sapphire theme for all normal screens, menus,
+ *                and action confirmations.
+ *              - Pure White seamless background EXCLUSIVELY for the Screensaver to blend
+ *                with the white-background hair animation frames.
+ *              - Screen 0 (Surgical Dash): Right side features a dedicated high-capacity Motor Card
+ *                moved left to x=114, with increased width, labeled "MOTOR CW/CCW" (not turbine),
+ *                housing the modern 2026 3-blade aerodynamic micro-turbine animation.
+ *              - Telemetry card on left has increased width and increased Font 2 sizes.
+ *              - Top splitter line lowered to y=26 for spacious header layout.
+ *              - Text beautifully CENTERED across all menus and telemetry cards.
+ *              - Header layout with non-overlapping zones: Title -> LED -> Robot -> Battery.
+ *              - Interactive AI Robot Companion ("El-Baseet Buddy") on the RIGHT side of
+ *                all menus and screens, with text cleanly positioned to its LEFT.
+ *              - Full-screen borderless 2-column detailed summary in screensaver on pure white.
+ * DEPENDENCIES: TFT_eSPI.h, Free_Fonts.h, SPI.h, WiFi.h, TJpg_Decoder.h
  * Created by Eng.Osama Omar
  * Senior Integration Lead
  * Cairo,Egypt
@@ -12,26 +24,26 @@
 #define DISPLAY_H
 
 #include <TFT_eSPI.h>
+#include "Free_Fonts.h"
 #include <SPI.h>
 #include <WiFi.h>
 #include <TJpg_Decoder.h>
 
-// Forward declaration for TJpg_Decoder rendering callback
+// Forward declaration of callback for TJpg_Decoder
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);
 
-// Animation Frame Counts
-#define WELCOME_FRAMES 70
-#define START_OP_FRAMES 68
-#define STOP_OP_FRAMES 60
-#define REPORT_FRAMES 25
+// Frame Counts for Animated Transitions
+#define WELCOME_FRAMES    105
+#define START_OP_FRAMES   68
+#define STOP_OP_FRAMES    60
+#define REPORT_FRAMES     25
 
-// Animation Function Prototypes
 void showWelcomeAnimation();
 void showStartOperationAnimation();
 void showStopOperationAnimation();
 void showReportAnimation();
 
-// Extern global references for local menu system
+// Extern global references for local menu system & telemetry
 extern bool inMenuMode;
 extern uint8_t currentMenuItem;
 extern uint8_t webBaseSpeed;
@@ -46,207 +58,611 @@ extern bool systemEnabled;
 extern unsigned long lastInteractionTime;
 extern uint8_t ledBrightness;
 extern void setLEDBrightness(uint8_t brightness);
+extern bool forwardDirection;
 
+// Instantiate TFT_eSPI object
 TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite spr = TFT_eSprite(&tft); // Create the Sprite object
-TFT_eSprite clockSpr = TFT_eSprite(&tft); // Dedicated sprite for flicker-free clock panel
+
+// Sprite object for flicker-free double buffering
+TFT_eSprite spr = TFT_eSprite(&tft);
+
+// Dedicated double-buffered sprite for auxiliary panels
+TFT_eSprite clockSpr = TFT_eSprite(&tft);
+
+// =============================================================================
+// --- COLOR PALETTE DEFINITIONS ---
+// =============================================================================
+// 1. Glowing Clinical Sapphire Theme (Used for all Screens, Menus & Confirmations)
+#define COLOR_BG          0x08C5   // Deep Clinical Sapphire (#0c192e - rich non-black)
+#define COLOR_CARD        0x1149   // Translucent Clinical Card (#162a4a)
+#define COLOR_CARD_HI     0x19ED   // Active Card Glass Highlight (#203d68)
+#define COLOR_TXT_MAIN    TFT_WHITE// Crisp Pure White Text (#ffffff)
+#define COLOR_TXT_WHITE   TFT_WHITE
+#define COLOR_TXT_MUTED   0x9D17   // Ice Slate Grey (#94a3b8)
+#define COLOR_GLOW_CYAN   0x079F   // Radiant Laser Cyan (#00f0ff - glowing highlight)
+#define COLOR_GLOW_BLUE   0x231D   // Electric Medical Blue (#2563eb)
+#define COLOR_EMERALD     0x15D0   // Surgical Vivid Green (#10b981)
+#define COLOR_AMBER       0xF4E1   // Luminous Gold / Amber (#f59e0b)
+#define COLOR_CORAL       0xFA64   // Coral Alert / Reverse (#f97316)
+#define COLOR_ROSE        0xE0E9   // Neon Rose Smile (#e11d48)
+#define COLOR_PINK        0xF396   // Blushing Robot Cheeks (#f472b6)
+#define COLOR_DIVIDER     0x21EB   // Subtle Glass Divider (#233554)
+#define COLOR_MENU_BAR    0x231D   // Electric Blue Selected Pill (#2563eb)
+
+// 2. Pure White Theme (Used EXCLUSIVELY for the Screensaver to blend with white JPG frames)
+#define COLOR_SAV_BG      TFT_WHITE                   // Pure White for screensaver canvas
+#define COLOR_SAV_CARD    tft.color565(241, 245, 249) // Soft Ice Pearl Card (#f1f5f9)
+#define COLOR_SAV_TXT     tft.color565(15, 23, 42)    // Deep Obsidian Navy Text (#0f172a)
+#define COLOR_SAV_DIV     tft.color565(203, 213, 225) // Hairline Divider (#cbd5e1)
 
 // --- CONFIRMATION MESSAGE STATE ---
 static String s_confirmationMessage = "";
 static unsigned long s_confirmationTimer = 0;
 static bool s_oledInitialized = false;
-#define CONFIRMATION_DURATION 2000 // Display message for 2 seconds
+#define CONFIRMATION_DURATION 2000
 
 // --- GRAFT FLASH MESSAGE STATE ---
 static String s_flashMessage = "";
 static unsigned long s_flashTimer = 0;
-#define CONFIRMATION_DURATION 2000 // Display message for 2 seconds
+
+// =============================================================================
+// --- ANIMATED AI ROBOT COMPANION ENGINE ("EL-BASEET BUDDY") ---
+// =============================================================================
 
 /**
- * @brief Initializes the ST7789 TFT display on the TTGO T-Display.
- * 
- * This function initializes the TFT_eSPI library, sets the screen rotation,
- * and clears the display to a default background color.
- * NOTE: Ensure your TFT_eSPI library is configured for the TTGO T-Display
- * in the User_Setup.h file.
+ * @brief Draws a compact animated robot companion face for screen headers.
+ *        Positioned safely to the left of the battery gauge (zero collision).
+ */
+void drawRobotFaceCompact(TFT_eSprite &target, int16_t x, int16_t y, bool isRunning, int8_t dir) {
+    target.fillRoundRect(x, y, 30, 16, 4, COLOR_CARD);
+    target.drawRoundRect(x, y, 30, 16, 4, isRunning ? COLOR_GLOW_CYAN : COLOR_GLOW_BLUE);
+
+    // Natural Eyelid Blink Timing (blinks for 150ms every 3.8s)
+    uint32_t t = millis() % 3800;
+    bool isBlink = (t < 150);
+
+    int16_t lx = x + 8;
+    int16_t rx = x + 22;
+    int16_t ey = y + 6;
+
+    if (isBlink) {
+        target.drawFastHLine(lx - 3, ey, 7, COLOR_GLOW_CYAN);
+        target.drawFastHLine(rx - 3, ey, 7, COLOR_GLOW_CYAN);
+    } else {
+        uint16_t eyeColor = isRunning ? COLOR_EMERALD : COLOR_GLOW_CYAN;
+        target.fillCircle(lx, ey, 3, eyeColor);
+        target.fillCircle(rx, ey, 3, eyeColor);
+
+        // Gaze Pupil tracking direction
+        int8_t pOff = (dir > 0) ? 1 : (dir < 0 ? -1 : 0);
+        target.drawPixel(lx + pOff, ey, COLOR_CARD);
+        target.drawPixel(rx + pOff, ey, COLOR_CARD);
+
+        // White reflection dot
+        target.drawPixel(lx - 1, ey - 1, COLOR_TXT_WHITE);
+        target.drawPixel(rx - 1, ey - 1, COLOR_TXT_WHITE);
+    }
+
+    // Blushing Cheeks
+    target.drawPixel(x + 3, y + 10, COLOR_PINK);
+    target.drawPixel(x + 26, y + 10, COLOR_PINK);
+
+    // Cheerful Smile
+    int16_t mx = x + 15;
+    int16_t my = y + 12;
+    target.drawFastHLine(mx - 3, my, 7, COLOR_GLOW_CYAN);
+    target.drawPixel(mx - 4, my - 1, COLOR_GLOW_CYAN);
+    target.drawPixel(mx + 4, my - 1, COLOR_GLOW_CYAN);
+}
+
+/**
+ * @brief Draws the dedicated interactive animated robot companion pod on the RIGHT
+ *        side of screens and menus, with telemetry/menu text cleanly positioned to its LEFT.
+ *        The robot eyes look LEFT at the data/menu choices!
+ */
+void drawRobotCompanionPod(TFT_eSprite &target, int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* badge, uint16_t badgeColor, bool alertEye) {
+    target.fillRoundRect(x, y, w, h, 6, COLOR_CARD);
+    target.drawRoundRect(x, y, w, h, 6, COLOR_GLOW_BLUE);
+
+    // Header label
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString(title, x + w / 2, y + 4, 1);
+
+    // Visor Face
+    int16_t cx = x + w / 2;
+    int16_t cy = y + 36;
+
+    target.fillRoundRect(cx - 20, cy - 14, 40, 28, 6, COLOR_BG);
+    target.drawRoundRect(cx - 20, cy - 14, 40, 28, 6, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+
+    // Ear Nodes
+    target.fillRoundRect(cx - 23, cy - 5, 4, 10, 2, COLOR_GLOW_BLUE);
+    target.fillRoundRect(cx + 19, cy - 5, 4, 10, 2, COLOR_GLOW_BLUE);
+
+    // Eyes (Looking LEFT at the data!)
+    uint32_t t = millis() % 3500;
+    bool isBlink = (t < 150);
+
+    int16_t lx = cx - 8;
+    int16_t rx = cx + 8;
+    int16_t ey = cy - 2;
+
+    if (isBlink) {
+        target.drawFastHLine(lx - 4, ey, 9, COLOR_GLOW_CYAN);
+        target.drawFastHLine(rx - 4, ey, 9, COLOR_GLOW_CYAN);
+    } else {
+        uint16_t eColor = alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN;
+        target.fillCircle(lx, ey, 4, eColor);
+        target.fillCircle(rx, ey, 4, eColor);
+
+        target.fillCircle(lx - 2, ey, 2, COLOR_BG);
+        target.fillCircle(rx - 2, ey, 2, COLOR_BG);
+
+        target.drawPixel(lx, ey - 2, COLOR_TXT_WHITE);
+        target.drawPixel(rx, ey - 2, COLOR_TXT_WHITE);
+    }
+
+    // Blushing Pink Cheeks
+    target.drawPixel(cx - 14, cy + 6, COLOR_PINK);
+    target.drawPixel(cx + 14, cy + 6, COLOR_PINK);
+
+    // Warm Smile
+    target.drawFastHLine(cx - 4, cy + 8, 9, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+    target.drawPixel(cx - 5, cy + 7, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+    target.drawPixel(cx + 5, cy + 7, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+
+    // Status Badge at bottom of pod
+    target.setTextDatum(BC_DATUM);
+    target.setTextColor(badgeColor, COLOR_CARD);
+    target.drawString(badge, x + w / 2, y + h - 5, 1);
+}
+
+/**
+ * @brief Initializes the ST7789 display controller on TTGO / S3.
  */
 void setupOLED() {
-    // 1. Power on LCD panel & peripheral circuitry (GPIO 15)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_LILYGO_T_DISPLAY_S3)
     pinMode(15, OUTPUT);
     digitalWrite(15, HIGH);
-    delay(50); // Allow LCD power rail to fully stabilize
-
-    // 2. Hardware reset of LCD controller (GPIO 5)
+    delay(50);
     pinMode(5, OUTPUT);
     digitalWrite(5, HIGH);
     delay(10);
     digitalWrite(5, LOW);
     delay(20);
     digitalWrite(5, HIGH);
-    delay(50); // Allow display controller to reboot cleanly
-
-    // 3. Power on LCD backlight (GPIO 38)
+    delay(50);
     pinMode(38, OUTPUT);
     digitalWrite(38, HIGH);
+#endif
 
     tft.init();
-    tft.setRotation(1); // Use 1 or 3 for landscape orientation
-    tft.fillScreen(TFT_BLACK);
+    tft.setRotation(1); // Landscape
+    tft.fillScreen(COLOR_BG);
 
-    // Create a 16-bit color sprite the size of the screen
-    // All drawing will be done on this sprite, then pushed to the screen
     spr.setColorDepth(16);
     spr.createSprite(tft.width(), tft.height());
-
-    // Create dedicated sprite for the right-hand clock panel (105x135)
-    clockSpr.setColorDepth(16);
-    clockSpr.createSprite(105, 135);
 
     s_oledInitialized = true;
 }
 
 /**
- * @brief Displays a professional splash screen for the system.
+ * @brief Draws the branded welcome logo.
  */
 void showWelcomeLogo() {
     if (!s_oledInitialized) return;
 
-    spr.fillSprite(TFT_BLACK); // Use fillSprite to clear the buffer
-    
-    // Setup text alignment for easy centering
-    spr.setTextDatum(MC_DATUM); // Middle-Center datum
+    spr.fillSprite(COLOR_BG);
+    spr.setTextDatum(MC_DATUM);
 
-    // 1. Branding - Main Title ("EL-BASEET")
-    // Color matching #38bdf8 (Light Blue / Cyan)
-    spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-    spr.setTextSize(3);
-    spr.drawString("EL-BASEET", spr.width() / 2, 35, 1);
+    spr.fillRoundRect(10, 10, spr.width() - 20, spr.height() - 20, 10, COLOR_CARD);
+    spr.drawRoundRect(10, 10, spr.width() - 20, spr.height() - 20, 10, COLOR_GLOW_CYAN);
+    spr.drawRoundRect(11, 11, spr.width() - 22, spr.height() - 22, 9, COLOR_GLOW_BLUE);
 
-    // Decorative center line
-    spr.drawFastHLine(20, 60, spr.width() - 40, TFT_DARKGREY);
+    spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    spr.setFreeFont(FF22); // FreeSansBold 12pt
+    spr.drawString("EL-BASEET", spr.width() / 2, 50);
 
-    // 2. Subtitle ("HAIR PEN-V2")
-    // Color matching white/light cyan
-    spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-    spr.setTextSize(2);
-    spr.drawString("HAIR PEN-V2", spr.width() / 2, 85, 1);
+    spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+    spr.setFreeFont(FF17); // FreeSans 9pt
+    spr.drawString("SURGICAL HAIR PEN", spr.width() / 2, 85);
 
-    // 3. Sub-subtitle ("SURGICAL ASSISTANT")
-    // Color matching #94a3b8 (Light Grey)
-    spr.setTextColor(tft.color565(148, 163, 184), TFT_BLACK);
-    spr.setTextSize(1);
-    spr.drawString("SURGICAL ASSISTANT", spr.width() / 2, 110, 2);
-
-    // Reset datum for other functions
-    spr.setTextDatum(TL_DATUM);
-
-    // Push the completed sprite to the screen at coordinate 0,0
+    spr.setTextFont(1);
     spr.pushSprite(0, 0);
 }
 
 /**
- * @brief Draws a dynamic battery icon in the top-right corner of the sprite.
- * 
- * This function handles drawing a battery icon that reflects the current charge
- * state. It shows a static, color-coded level when on battery power and a
- * cycling animation when charging.
- * 
- * @param spr A reference to the TFT_eSprite object to draw on.
- * @param isConnected True if a battery is detected.
- * @param isCharging True if the device is plugged in and charging.
- * @param batPct The current battery percentage (0-100).
+ * @brief Draws a clean high-contrast battery gauge with glowing charge states.
+ *        Separated cleanly to prevent any overlap with the robot face.
  */
-void drawBatteryIcon(TFT_eSprite &spr, bool isConnected, bool isCharging, uint8_t batPct) {
-    int16_t x = spr.width() - 28; // Top-right corner X position
-    int16_t y = 4;                // Top-right corner Y position
+void drawBatteryIcon(TFT_eSprite &targetSpr, bool isConnected, bool isCharging, uint8_t batPct) {
+    int16_t x = targetSpr.width() - 24;
+    int16_t y = 6;
 
     if (isCharging) {
-        // Draw battery casing and terminal (consistent with connected battery icon size)
-        spr.drawRect(x, y, 22, 12, TFT_WHITE); // Body
-        spr.fillRect(x + 22, y + 3, 3, 6, TFT_WHITE); // Terminal
+        targetSpr.drawRoundRect(x, y, 20, 12, 2, COLOR_TXT_WHITE);
+        targetSpr.fillRect(x + 20, y + 3, 2, 6, COLOR_TXT_WHITE);
 
-        // Dynamic battery filling animation: Cycles from 20% to 100% every 1.5 seconds (300ms per step)
-        uint8_t animPct = 20 + ((millis() / 300) % 5) * 20;
-        int fillWidth = map(animPct, 0, 100, 0, 18);
-        if (fillWidth > 0) {
-            spr.fillRect(x + 2, y + 2, fillWidth, 8, TFT_GREEN);
-        }
+        uint8_t animPct = 20 + ((millis() / 280) % 5) * 20;
+        int fillW = map(animPct, 0, 100, 0, 16);
+        if (fillW > 0) targetSpr.fillRect(x + 2, y + 2, fillW, 8, COLOR_EMERALD);
 
-        // Draw CHG text in front of battery
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString("CHG", x - 32, y, 2);
+        targetSpr.setTextDatum(TR_DATUM);
+        targetSpr.setTextColor(COLOR_AMBER, COLOR_BG);
+        targetSpr.drawString("CHG", x - 3, y - 1, 2);
     } else if (isConnected) {
-        // Draw static battery level icon
-        spr.setTextColor(TFT_WHITE);
-        spr.drawString(String(batPct) + "%", x - 8, y, 2);
-        spr.drawRect(x, y, 22, 12, TFT_WHITE); // Body
-        spr.fillRect(x + 22, y + 3, 3, 6, TFT_WHITE); // Terminal
+        targetSpr.setTextDatum(TR_DATUM);
+        uint16_t pctColor = (batPct < 20) ? COLOR_CORAL : COLOR_TXT_WHITE;
+        targetSpr.setTextColor(pctColor, COLOR_BG);
+        targetSpr.drawString(String(batPct) + "%", x - 3, y - 1, 2);
 
-        uint16_t barColor = (batPct < 20) ? TFT_RED : (batPct < 50) ? TFT_ORANGE : TFT_GREEN;
-        int fillWidth = map(batPct, 0, 100, 0, 18);
-        if (fillWidth > 0) {
-            spr.fillRect(x + 2, y + 2, fillWidth, 8, barColor);
-        }
+        targetSpr.drawRoundRect(x, y, 20, 12, 2, COLOR_TXT_WHITE);
+        targetSpr.fillRect(x + 20, y + 3, 2, 6, COLOR_TXT_WHITE);
+
+        uint16_t barColor = (batPct < 20) ? COLOR_CORAL : (batPct < 50) ? COLOR_AMBER : COLOR_EMERALD;
+        int fillW = map(batPct, 0, 100, 0, 16);
+        if (fillW > 0) targetSpr.fillRect(x + 2, y + 2, fillW, 8, barColor);
     }
 }
 
 /**
- * @brief Refreshes the OLED display with current motor and battery telemetry.
- * 
- * This function clears the display, draws the UI elements, and updates the
- * displayed values for motor speed, battery voltage, and battery current.
- * 
- * @param speed Current PWM duty cycle (0-255) for the motor.
- * @param volt Measured battery voltage (e.g., 3.85V).
- * @param amp Measured current draw in Amperes (e.g., 0.25A).
- * @param currentTrip Safety flag indicating an overcurrent event.
- * @param voltageTrip Safety flag indicating low battery voltage.
- * @param rpm The calculated estimated RPM of the motor.
- * @param pwr The calculated power consumption in Watts.
- * @param isBatConnected Flag for battery presence.
- * @param batPct Battery charge percentage.
- * @param isCharging Flag for charging status.
- * @param screen The active screen index (0: Drive, 1: Energy, 2: Net Status).
- * @param ip The Access Point IP address.
- * @param clients Number of connected WiFi stations.
- * @param debug Flag for engineering debug mode.
- * @param wifiConnecting Flag indicating if STA connection is in progress.
- * @param oscMode Flag indicating if oscillation mode is active.
- * @param oscCW The duration for clockwise rotation in ms.
- * @param oscCCW The duration for counter-clockwise rotation in ms.
+ * @brief Full refresh routine drawing all UI screens with glowing dark theme,
+ *        centered menu/data text, non-overlapping header, and FULL-SCREEN white screensaver.
  */
+/**
+ * @brief Draws the complete, borderless Full-Screen Executive Telemetry Summary.
+ *        Used as the dedicated Summary Screen (Screen 6) and in the Screensaver cycle.
+ */
+void drawSummaryScreen(TFT_eSprite &target, int16_t speed, float volt, float amp, uint32_t rpm, float pwr, bool isBatConnected, uint8_t batPct, bool isCharging, uint32_t count) {
+    // 1. Deep Clinical Sapphire Background (Zero white background!)
+    target.fillSprite(COLOR_BG);
+
+    // Line 1: ● READY STANDBY (Centered, prominent, Font 2 in Emerald Green)
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_EMERALD, COLOR_BG);
+    target.drawString("● READY STANDBY", target.width() / 2, 4, 2);
+
+    // Line 2: CLINICAL TELEMETRY EXECUTIVE SUMMARY (Centered, Font 1)
+    target.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+    target.drawString("CLINICAL TELEMETRY EXECUTIVE SUMMARY", target.width() / 2, 19, 1);
+
+    // Line 3: ─────────────────────────────────────────────────────────────
+    target.drawFastHLine(0, 27, target.width(), COLOR_GLOW_BLUE);
+    target.drawFastHLine(target.width() / 2 - 25, 27, 50, COLOR_GLOW_CYAN);
+
+    // Lines 4 to 9: TWO CARDS SIDE-BY-SIDE WITH GLOWING BLUE ROUNDED BORDERS
+    int margin = 4;
+    int gap = 6;
+    int colW = (target.width() - (margin * 2) - gap) / 2; // 113px on 240, 153px on 320
+    int colH = 82;
+    int colY = 30;
+
+    int card1X = margin;
+    int card2X = margin + colW + gap;
+    int cx1 = card1X + colW / 2;
+    int cx2 = card2X + colW / 2;
+
+    // --- LEFT CARD: ╭─────── ENERGY & POWER ────────╮ ---
+    target.fillRoundRect(card1X, colY, colW, colH, 6, COLOR_CARD);
+    target.drawRoundRect(card1X, colY, colW, colH, 6, COLOR_GLOW_BLUE); // Glowing card border!
+
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString("ENERGY & POWER", cx1, colY + 3, 1);
+    target.drawFastHLine(card1X + 4, colY + 13, colW - 8, COLOR_DIVIDER);
+
+    target.setTextDatum(TL_DATUM);
+    target.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+    target.drawString("Battery:", card1X + 5, colY + 18, 1);
+    target.drawString("State:  ", card1X + 5, colY + 33, 1);
+    target.drawString("Current:", card1X + 5, colY + 48, 1);
+    target.drawString("Power:  ", card1X + 5, colY + 63, 1);
+
+    uint16_t bCol = (batPct < 20) ? COLOR_CORAL : (batPct < 50) ? COLOR_AMBER : COLOR_EMERALD;
+    target.setTextColor(bCol, COLOR_CARD);
+    target.drawString(String(volt, 2) + "V (" + String(batPct) + "%)", card1X + 48, colY + 18, 1);
+
+    target.setTextColor(isCharging ? COLOR_EMERALD : COLOR_TXT_MUTED, COLOR_CARD);
+    target.drawString(isCharging ? "⚡ USB Active" : "🔋 Discharging", card1X + 48, colY + 33, 1);
+
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString(String(amp, 3) + " A", card1X + 48, colY + 48, 1);
+    target.drawString(String(pwr, 1) + " W", card1X + 48, colY + 63, 1);
+    // ╰───────────────────────────────╯
+
+    // --- RIGHT CARD: ╭────── SURGICAL STATUS ──────╮ ---
+    target.fillRoundRect(card2X, colY, colW, colH, 6, COLOR_CARD);
+    target.drawRoundRect(card2X, colY, colW, colH, 6, COLOR_GLOW_BLUE); // Glowing card border!
+
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString("SURGICAL STATUS", cx2, colY + 3, 1);
+    target.drawFastHLine(card2X + 4, colY + 13, colW - 8, COLOR_DIVIDER);
+
+    target.setTextDatum(TL_DATUM);
+    target.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+    target.drawString("Motor: ", card2X + 5, colY + 18, 1);
+    target.drawString("Speed: ", card2X + 5, colY + 33, 1);
+    target.drawString("Mode:  ", card2X + 5, colY + 48, 1);
+    target.drawString("Grafts:", card2X + 5, colY + 63, 1);
+
+    if (speed != 0) {
+        target.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        target.drawString(forwardDirection ? "RUN (FWD)" : "RUN (REV)", card2X + 46, colY + 18, 1);
+    } else {
+        target.setTextColor(COLOR_AMBER, COLOR_CARD);
+        target.drawString("STANDBY IDLE", card2X + 46, colY + 18, 1);
+    }
+
+    int pSpd = round((float)webBaseSpeed * 100.0f / 255.0f);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString(String(pSpd) + "% (" + String(rpm) + ")", card2X + 46, colY + 33, 1);
+
+    target.setTextColor(COLOR_GLOW_BLUE, COLOR_CARD);
+    target.drawString(oscillatingMode ? "OSCILLATING" : "NORMAL", card2X + 46, colY + 48, 1);
+
+    target.setTextColor(COLOR_AMBER, COLOR_CARD);
+    target.drawString(String(count) + " completed", card2X + 46, colY + 63, 1);
+    // ╰─────────────────────────────╯
+
+    // Line 10: ─────────────────────────────────────────────────────────────
+    target.drawFastHLine(0, 115, target.width(), COLOR_GLOW_BLUE);
+
+    // Line 11: 12:45 PM | Oct 04, 2026                 ● CALIBRATION STABLE
+    struct tm timeinfo;
+    bool hasTime = getLocalTime(&timeinfo, 5);
+    target.setTextDatum(TL_DATUM);
+    if (hasTime && timeinfo.tm_year >= 120) {
+        char timeBuff[28];
+        strftime(timeBuff, sizeof(timeBuff), "%I:%M %p | %b %d, %Y", &timeinfo);
+        target.setTextColor(COLOR_TXT_MAIN, COLOR_BG);
+        target.drawString(timeBuff, 6, 119, 1);
+    } else {
+        target.setTextColor(COLOR_TXT_MAIN, COLOR_BG);
+        target.drawString("EL-BASEET SURGICAL PEN", 6, 119, 1);
+    }
+
+    target.setTextDatum(TR_DATUM);
+    target.setTextColor(COLOR_EMERALD, COLOR_BG);
+    target.drawString("● CALIBRATION STABLE", target.width() - 6, 119, 1);
+    target.setTextDatum(TL_DATUM);
+}
+
+/**
+ * @brief Draws the Morphing Robot-to-Pen Standby Animation Screen.
+ *        The animated robot face floats between the left card and right card,
+ *        smoothly transforms its shape into a precision surgical hair pen handpiece,
+ *        and then morphs back into the cheerful robot face.
+ */
+void drawMorphingStandbyScreen(TFT_eSprite &target, int16_t speed, float volt, float amp, uint32_t rpm, float pwr, bool isBatConnected, uint8_t batPct, bool isCharging, uint32_t count) {
+    target.fillSprite(COLOR_BG);
+
+    // 1. Shared Header
+    target.setTextSize(1);
+    target.setTextDatum(TL_DATUM);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_BG);
+    target.drawString("STANDBY ACTIVE", 6, 6, 2);
+
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_AMBER, COLOR_BG);
+    target.drawString("MORPHING COMPANION", target.width() / 2, 6, 2);
+
+    drawBatteryIcon(target, isBatConnected, isCharging, batPct);
+
+    target.drawFastHLine(0, 26, target.width(), COLOR_GLOW_BLUE);
+    target.drawFastHLine(target.width() / 2 - 25, 26, 50, COLOR_GLOW_CYAN);
+
+    // 2. Left Bay & Right Bay Staging Cards
+    int margin = 6;
+    int gap = 12;
+    int bayW = (target.width() - (margin * 2) - gap) / 2;
+    int bayH = 82;
+    int bayY = 30;
+
+    int bay1X = margin;
+    int bay2X = margin + bayW + gap;
+    int cx1 = bay1X + (bayW / 2);
+    int cx2 = bay2X + (bayW / 2);
+
+    target.fillRoundRect(bay1X, bayY, bayW, bayH, 6, COLOR_CARD);
+    target.drawRoundRect(bay1X, bayY, bayW, bayH, 6, COLOR_DIVIDER);
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    target.drawString("ROBOT AVATAR", cx1, bayY + 3, 1);
+    target.drawFastHLine(bay1X + 4, bayY + 13, bayW - 8, COLOR_DIVIDER);
+
+    target.fillRoundRect(bay2X, bayY, bayW, bayH, 6, COLOR_CARD);
+    target.drawRoundRect(bay2X, bayY, bayW, bayH, 6, COLOR_DIVIDER);
+    target.setTextDatum(TC_DATUM);
+    target.setTextColor(COLOR_AMBER, COLOR_CARD);
+    target.drawString("SURGICAL PEN", cx2, bayY + 3, 1);
+    target.drawFastHLine(bay2X + 4, bayY + 13, bayW - 8, COLOR_DIVIDER);
+
+    // 3. Procedural Morphing Calculations (10-second cycle)
+    uint32_t cycle = millis() % 10000;
+    float curX = cx1;
+    float morph = 0.0f; // 0.0 = Robot Face, 1.0 = Surgical Pen
+
+    if (cycle < 2500) {
+        curX = cx1;
+        morph = 0.0f;
+    } else if (cycle < 4500) {
+        float p = (cycle - 2500) / 2000.0f;
+        curX = cx1 + p * (cx2 - cx1);
+        morph = sin(p * 1.5707963f);
+    } else if (cycle < 7000) {
+        curX = cx2;
+        morph = 1.0f;
+    } else if (cycle < 9000) {
+        float p = (cycle - 7000) / 2000.0f;
+        curX = cx2 - p * (cx2 - cx1);
+        morph = cos(p * 1.5707963f);
+    } else {
+        curX = cx1;
+        morph = 0.0f;
+    }
+
+    float floatY = sin(millis() / 240.0f) * 2.5f;
+    int16_t cy = bayY + 46 + (int16_t)floatY;
+    int16_t cx = (int16_t)curX;
+
+    int16_t w = (int16_t)(42.0f + morph * 32.0f);
+    int16_t h = (int16_t)(30.0f - morph * 16.0f);
+    int16_t vx = cx - w / 2;
+    int16_t vy = cy - h / 2;
+
+    // Conical Surgical Punch Needle emerges as morph progresses
+    if (morph > 0.08f) {
+        int16_t needleBaseX = cx + w / 2;
+        int16_t needleLen = (int16_t)(morph * 16.0f);
+        int16_t needleH = (int16_t)(morph * 4.0f);
+        target.fillTriangle(needleBaseX, cy - needleH, needleBaseX, cy + needleH, needleBaseX + needleLen, cy, COLOR_GLOW_CYAN);
+        target.drawPixel(needleBaseX + needleLen, cy, COLOR_TXT_WHITE);
+        if (morph > 0.7f && (millis() / 150) % 2 == 0) {
+            target.drawPixel(needleBaseX + needleLen + 2, cy, COLOR_GLOW_CYAN);
+        }
+    }
+
+    // Ear Nodes (Robot state)
+    if (morph < 0.6f) {
+        int16_t earW = (int16_t)((1.0f - morph / 0.6f) * 5.0f);
+        if (earW > 0) {
+            target.fillRoundRect(vx - earW, cy - 6, earW + 1, 12, 2, COLOR_GLOW_BLUE);
+            target.fillRoundRect(vx + w - 1, cy - 6, earW + 1, 12, 2, COLOR_GLOW_BLUE);
+        }
+    }
+
+    // Main Shell
+    target.fillRoundRect(vx, vy, w, h, (int16_t)(6 - morph * 3), COLOR_CARD_HI);
+    target.drawRoundRect(vx, vy, w, h, (int16_t)(6 - morph * 3), COLOR_GLOW_CYAN);
+
+    if (morph < 0.5f) {
+        // --- ROBOT FACE MODE ---
+        int16_t eyeDist = (int16_t)((1.0f - morph * 1.5f) * 9.0f);
+        int16_t ey = cy - 2;
+
+        uint32_t t = millis() % 3500;
+        bool isBlink = (t < 150) && (morph < 0.2f);
+
+        if (isBlink) {
+            target.drawFastHLine(cx - eyeDist - 3, ey, 7, COLOR_GLOW_CYAN);
+            target.drawFastHLine(cx + eyeDist - 3, ey, 7, COLOR_GLOW_CYAN);
+        } else {
+            target.fillCircle(cx - eyeDist, ey, 3, COLOR_GLOW_CYAN);
+            target.fillCircle(cx + eyeDist, ey, 3, COLOR_GLOW_CYAN);
+            target.drawPixel(cx - eyeDist - 1, ey - 1, COLOR_TXT_WHITE);
+            target.drawPixel(cx + eyeDist - 1, ey - 1, COLOR_TXT_WHITE);
+        }
+
+        target.drawPixel(cx - eyeDist - 4, cy + 4, COLOR_PINK);
+        target.drawPixel(cx + eyeDist + 4, cy + 4, COLOR_PINK);
+
+        target.drawFastHLine(cx - 3, cy + 6, 7, COLOR_AMBER);
+        target.drawPixel(cx - 4, cy + 5, COLOR_AMBER);
+        target.drawPixel(cx + 4, cy + 5, COLOR_AMBER);
+    } else {
+        // --- SURGICAL PEN MODE ---
+        int16_t collarX = cx - 4;
+        target.fillRoundRect(collarX, vy + 1, 6, h - 2, 2, COLOR_EMERALD);
+        target.drawRoundRect(collarX, vy + 1, 6, h - 2, 2, COLOR_GLOW_CYAN);
+
+        target.drawFastVLine(cx - 16, vy + 2, h - 4, COLOR_DIVIDER);
+        target.drawFastVLine(cx - 12, vy + 2, h - 4, COLOR_DIVIDER);
+        target.drawFastVLine(cx - 8, vy + 2, h - 4, COLOR_DIVIDER);
+
+        target.drawPixel(cx + 12, cy, COLOR_GLOW_CYAN);
+        target.drawPixel(cx + 14, cy, COLOR_AMBER);
+    }
+
+    target.setTextDatum(BC_DATUM);
+    target.setTextColor(COLOR_EMERALD, COLOR_CARD);
+    target.drawString("AI COMPANION", cx1, bayY + bayH - 4, 1);
+
+    target.setTextColor(COLOR_AMBER, COLOR_CARD);
+    target.drawString("PRECISION PEN", cx2, bayY + bayH - 4, 1);
+
+    target.drawFastHLine(0, 115, target.width(), COLOR_GLOW_BLUE);
+    target.setTextDatum(TL_DATUM);
+    target.setTextColor(COLOR_AMBER, COLOR_BG);
+    target.drawString("GRAFTS: " + String(count) + " completed", 6, 118, 2);
+
+    target.setTextDatum(TR_DATUM);
+    target.setTextColor(COLOR_EMERALD, COLOR_BG);
+    target.drawString("STANDBY READY", target.width() - 6, 118, 2);
+    target.setTextDatum(TL_DATUM);
+}
+
 void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool voltageTrip, uint32_t rpm, float pwr, bool isBatConnected, uint8_t batPct, bool isCharging, uint8_t screen, String ip, uint8_t clients, bool debug, uint32_t count, bool wifiConnecting, bool oscMode, uint32_t oscCW, uint32_t oscCCW, String pName, String pAge, String pNat) {
-    spr.fillSprite(TFT_BLACK); // Clear the sprite buffer, not the screen
-    spr.setTextColor(TFT_WHITE, TFT_BLACK);
-    
+    if (!s_oledInitialized) return;
+
+    // --- OVERRIDE: WEB / BUTTON CONFIRMATION MESSAGE (CLEAN & MODERN, NO ROBOT FACE) ---
     if (millis() - s_confirmationTimer < CONFIRMATION_DURATION) {
-        spr.setTextDatum(MC_DATUM); // Middle-Center datum
-        spr.setTextSize(2);
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Cyan matching brand
-        spr.drawString(s_confirmationMessage, spr.width() / 2, spr.height() / 2);
-        spr.pushSprite(0, 0); // Push the confirmation message to the screen
-        return; // Skip normal screen drawing
-    }
+        spr.fillSprite(COLOR_BG);
 
-    if (millis() - s_flashTimer < 200) { // Display flash for 200ms
-        spr.fillSprite(TFT_WHITE); // White background
+        // Elegant Glowing Sapphire Card with Double Border
+        spr.fillRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_CARD);
+        spr.drawRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_GLOW_CYAN);
+        spr.drawRoundRect(9, 9, spr.width() - 18, spr.height() - 18, 7, COLOR_GLOW_BLUE);
+
+        // Subtitle tag
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("SYSTEM NOTIFICATION", spr.width() / 2, 22, 2);
+
+        // Clean Modern FreeFont message (smooth vector typography in glowing cyan)
+        spr.setFreeFont(FF22); // FreeSansBold12pt7b
         spr.setTextDatum(MC_DATUM);
-        spr.setTextColor(TFT_BLACK); // Black text
-        spr.drawString(s_flashMessage, spr.width() / 2, spr.height() / 2, 4);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(s_confirmationMessage, spr.width() / 2, spr.height() / 2 + 4);
+
+        // Confirmation Status Pill
+        spr.setTextDatum(BC_DATUM);
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString("● CONFIRMED", spr.width() / 2, spr.height() - 18, 2);
+
+        spr.setTextFont(1);
+        spr.setTextSize(1);
         spr.pushSprite(0, 0);
-        return; // Skip normal screen drawing
+        return;
     }
 
-    // --- LOCAL MENU MODE OVERRIDE ---
+    // --- OVERRIDE: GRAFT DETECTION CONFIRMATION FLASH ---
+    if (millis() - s_flashTimer < 200) {
+        spr.fillSprite(COLOR_CARD_HI);
+        spr.setFreeFont(FF22);
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD_HI);
+        spr.drawString("GRAFT #" + s_flashMessage, spr.width() / 2, spr.height() / 2);
+        spr.setTextFont(1);
+        spr.setTextSize(1);
+        spr.pushSprite(0, 0);
+        return;
+    }
+
+    // --- LOCAL MENU MODE OVERRIDE (TEXT BEAUTIFULLY CENTERED, ROBOT COMPANION ON RIGHT) ---
     if (inMenuMode) {
-        spr.fillSprite(TFT_BLACK);
-        spr.setTextSize(1); // Reset text size from screensaver to prevent giant menu text
-        spr.setTextDatum(TL_DATUM); // Reset text datum to Top-Left for proper menu alignment
-        
-        // Draw Header
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString("SYSTEM MENU", 5, 5, 2);
-        spr.drawFastHLine(0, 22, spr.width(), TFT_DARKGREY);
+        spr.fillSprite(COLOR_BG);
+        spr.setTextSize(1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Header Title on Left
+        spr.setTextColor(COLOR_AMBER, COLOR_BG);
+        spr.drawString("SYSTEM MENU", 6, 6, 2);
+
+        // Exit Hint
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+        spr.drawString("[HOLD EXIT]", spr.width() - 6, 6, 2);
+        spr.setTextDatum(TL_DATUM);
+
+        // Lowered splitter line at y=26
+        spr.drawFastHLine(0, 26, spr.width(), COLOR_GLOW_BLUE);
+        spr.drawFastHLine(spr.width() / 2 - 25, 26, 50, COLOR_GLOW_CYAN);
+
+        // Menu items on the LEFT side (leaving space on the right for robot companion)
+        int menuWidth = spr.width() - 64;
+        int pillCX = 4 + (menuWidth / 2); // Exact horizontal center of the menu pill!
 
         const char* labels[] = {
             "1. Speed: ",
@@ -258,14 +674,18 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         };
 
         for (uint8_t i = 0; i < 6; i++) {
-            int yPos = 26 + (i * 17);
-            
-            // Draw background highlight bar for the highlighted item
+            int yPos = 30 + (i * 17);
+
             if (i == currentMenuItem) {
-                spr.fillRoundRect(2, yPos - 1, spr.width() - 4, 16, 3, TFT_BLUE);
-                spr.setTextColor(TFT_WHITE, TFT_BLUE);
+                // Active item: Glowing Electric Blue selection pill with white text
+                spr.fillRoundRect(4, yPos - 1, menuWidth, 16, 4, COLOR_MENU_BAR);
+                spr.drawRoundRect(4, yPos - 1, menuWidth, 16, 4, COLOR_GLOW_CYAN);
+                spr.setTextColor(COLOR_TXT_WHITE, COLOR_MENU_BAR);
             } else {
-                spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+                // Inactive item: Soft translucent card
+                spr.fillRoundRect(4, yPos - 1, menuWidth, 16, 4, COLOR_CARD);
+                spr.drawRoundRect(4, yPos - 1, menuWidth, 16, 4, COLOR_DIVIDER);
+                spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
             }
 
             String text = labels[i];
@@ -283,391 +703,501 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
             else if (i == 2) text += (oscillatingMode ? "OSC" : "NORMAL");
             else if (i == 3) text += (motorVersion == 1 ? "V1-Enc" : "V2-Std");
 
-            spr.drawString(text, 10, yPos, 2);
+            // Text BEAUTIFULLY CENTERED horizontally inside the selection card with Font 2!
+            spr.setTextDatum(MC_DATUM);
+            spr.drawString(text, pillCX, yPos + 7, 2);
+            spr.setTextDatum(TL_DATUM);
         }
+
+        // Animated Robot Companion on the RIGHT side! (Looking LEFT at the centered choices!)
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 84, "ASSIST", "● READY", COLOR_EMERALD, false);
+
         spr.pushSprite(0, 0);
-        return; // Skip drawing normal telemetry screens
+        return;
     }
 
-    // Check if we should activate the elegant Animated screensaver.
-    // Activated if the system is IDLE (no motor speed, system disabled, not in menu, and no interaction for > 15 seconds)
-    bool inScreensaver = (!inMenuMode && !systemEnabled && abs(speed) <= 10 && (millis() - lastInteractionTime > 15000));
+    // --- SCREENSAVER MODE: 100% FULL-SCREEN BORDERLESS DETAILED CLINICAL TELEMETRY SUMMARY ---
+    bool inScreensaver = (!inMenuMode && !systemEnabled && abs(speed) <= 10 && (millis() - lastInteractionTime > 8000));
     static bool s_wasScreensaver = false;
-    
+
     if (inScreensaver) {
-        // Clear screen ONCE upon transition into screensaver mode (prevents flicker)
         if (!s_wasScreensaver) {
-            tft.fillScreen(TFT_BLACK);
+            tft.fillScreen(COLOR_BG);
             s_wasScreensaver = true;
         }
-        
-        // 1. Play the animation frame from the hair frame set (0, 0 to 134, 134)
-        static uint8_t s_savFrame = 0;
-        s_savFrame = (s_savFrame + 1) % STOP_OP_FRAMES;
-        
-        TJpgDec.setJpgScale(1);
-        TJpgDec.setSwapBytes(true);
-        TJpgDec.setCallback(tft_output);
-        TJpgDec.drawFsJpg(0, 0, "/hair_" + String(s_savFrame) + ".jpg");
-        
-        // 2. Render real-time clock and status into dedicated double-buffered sprite (Width: 105, Height: 135)
-        clockSpr.fillSprite(TFT_BLACK);
-        
-        clockSpr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Brand Cyan
-        clockSpr.setTextDatum(TC_DATUM);
-        clockSpr.drawString("EL-BASEET", 52, 12, 2);
-        
-        clockSpr.drawFastHLine(5, 30, 95, TFT_DARKGREY);
-        
-        struct tm timeinfo;
-        bool hasTime = getLocalTime(&timeinfo, 5); // Short non-blocking timeout
-        
-        if (hasTime && timeinfo.tm_year >= 120) {
-            // Live Digital Clock
-            char timeStr[6]; // "HH:MM"
-            strftime(timeStr, sizeof(timeStr), "%H:%M", &timeinfo);
-            clockSpr.setTextColor(TFT_WHITE, TFT_BLACK);
-            clockSpr.drawString(timeStr, 52, 38, 4);
-            
-            // Blinking Seconds
-            char secStr[4]; // ":SS"
-            strftime(secStr, sizeof(secStr), ":%S", &timeinfo);
-            clockSpr.setTextColor(tft.color565(14, 165, 233), TFT_BLACK);
-            clockSpr.drawString(secStr, 52, 64, 2);
-            
-            // Abbreviated Date
-            char dateStr[20]; // "Sep 19, 2026"
-            strftime(dateStr, sizeof(dateStr), "%b %d, %Y", &timeinfo);
-            clockSpr.setTextColor(TFT_YELLOW, TFT_BLACK);
-            clockSpr.drawString(dateStr, 52, 84, 1);
-        } else {
-            // Standby Status
-            clockSpr.setTextColor(TFT_GREEN, TFT_BLACK);
-            if ((millis() / 500) % 2 == 0) {
-                clockSpr.drawString("● READY", 52, 50, 2);
-            } else {
-                clockSpr.drawString("  READY", 52, 50, 2);
-            }
-            
-            clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-            clockSpr.drawString("SYS ACTIVE", 52, 72, 1);
-        }
-        
-        clockSpr.drawFastHLine(5, 104, 95, TFT_DARKGREY);
-        
-        // Onscreen live battery telemetry
-        clockSpr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        clockSpr.drawString("BAT: " + String(batPct) + "%", 52, 112, 1);
-        
-        // Push the entire right panel in ONE atomic DMA transfer (zero flicker)
-        clockSpr.pushSprite(135, 0);
+
+        // Dedicated ANIMATING ROBOT SCREEN SAVER!
+        // The morphing robot face glides between left and right bays and transforms into the surgical pen!
+        drawMorphingStandbyScreen(spr, speed, volt, amp, rpm, pwr, isBatConnected, batPct, isCharging, count);
+
+        spr.pushSprite(0, 0);
         return;
     } else {
         s_wasScreensaver = false;
     }
 
-    // --- SHARED HEADER ZONE ---
+    // --- SHARED HEADER ZONE (TITLE -> LED -> ROBOT COMPANION -> BATTERY GAUGE) ---
+    // Cleanly spaced across the width to guarantee ZERO overlap between Robot and Battery
+    spr.fillSprite(COLOR_BG);
     spr.setTextSize(1);
-    spr.setTextDatum(TL_DATUM); // Top-Left datum
-    bool anyTrip = currentTrip || voltageTrip;
-    
-    // Header Text
-    spr.setCursor(5, 5);
-    spr.setTextColor(tft.color565(56, 189, 248)); // Match Web Dashboard Cyan
-    if (anyTrip) {
-        // Flash the Alarm text if a trip is active
-        if ((millis() / 500) % 2 == 0) spr.drawString("!!! ALARM !!!", 5, 5, 2);
-    }
-    else if (screen == 0) spr.drawString("SURGICAL DASH", 5, 5, 2);
-    else if (screen == 1) spr.drawString("ENERGY STATUS", 5, 5, 2);
-    else if (screen == 2) spr.drawString("NET STATUS", 5, 5, 2);
-    else if (screen == 3) spr.drawString("OSCILLATION", 5, 5, 2);
-    else if (screen == 4) spr.drawString("DIAGNOSTICS", 5, 5, 2);
-    else spr.drawString("PATIENT INFO", 5, 5, 2);
+    spr.setTextDatum(TL_DATUM);
 
-    // Surgical LED Illumination Status Indicator in Header
+    // 1. Header Title on Left
+    spr.setTextColor(COLOR_GLOW_CYAN, COLOR_BG);
+    const char* screenTitles[] = {
+        "SURGICAL DASH",
+        "ENERGY STATUS",
+        "NET STATUS",
+        "OSCILLATION",
+        "DIAGNOSTICS",
+        "PATIENT INFO",
+        "PEN SUMMARY"
+    };
+    spr.drawString(screenTitles[screen], 6, 6, 2);
+
+    // 2. LED Status Indicator in center
     if (ledBrightness > 0) {
         uint8_t ledPct = round((float)ledBrightness * 100.0f / 255.0f);
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString("LED:" + String(ledPct) + "%", 118, 5, 2);
+        spr.setTextColor(COLOR_AMBER, COLOR_BG);
+        spr.drawString("LED:" + String(ledPct) + "%", 112, 6, 2);
     }
 
-    // Debug Indicator (Inverted Tag) - Flashing every 500ms for high visibility
-    if (debug && (millis() / 500) % 2 == 0) {
-        spr.fillRoundRect(spr.width() - 75, 3, 40, 16, 3, TFT_YELLOW);
-        spr.setTextColor(TFT_BLACK, TFT_YELLOW);
-        spr.drawString("DBG", spr.width() - 70, 5, 2);
-    }
-    
-    // Power Status
-    spr.setTextDatum(TR_DATUM); // Top-Right datum
+    // 3. Animated Robot Companion: placed at x = spr.width() - 100 (width: 30)
+    // Occupies x = spr.width() - 100 to spr.width() - 70
+    int8_t dir = (speed > 0) ? 1 : (speed < 0 ? -1 : 0);
+    drawRobotFaceCompact(spr, spr.width() - 100, 5, (speed != 0), dir);
+
+    // 4. Battery Icon & Percentage: occupies x = spr.width() - 60 to spr.width() - 2
+    // A 10-pixel gap separates the robot face and the battery text (NO OVERWRITE!)
     drawBatteryIcon(spr, isBatConnected, isCharging, batPct);
 
-    spr.drawFastHLine(0, 22, spr.width(), TFT_DARKGREY);
-    spr.setTextDatum(TL_DATUM); // Reset datum
+    // Lowered Splitter Line at y=26 gives plenty of breathing room to the header!
+    spr.drawFastHLine(0, 26, spr.width(), COLOR_GLOW_BLUE);
+    spr.drawFastHLine(spr.width() / 2 - 25, 26, 50, COLOR_GLOW_CYAN);
 
-    if (anyTrip && !debug) {
-        // --- ALARM OVERRIDE ---
-        spr.setTextDatum(MC_DATUM);
-        spr.setTextColor(TFT_RED, TFT_BLACK);
-        spr.drawString(currentTrip ? "OVERCURRENT" : "LOW BATTERY", spr.width()/2, 50, 4);
-        spr.drawString("SYSTEM HALTED", spr.width()/2, 85, 4);
-        spr.pushSprite(0, 0); // Push the alarm message to the screen
-        return; // Skip drawing normal telemetry
+        if (screen == 6) {
+        // =====================================================================
+        // SCREEN 6: FULL-SCREEN EXECUTIVE TELEMETRY SUMMARY
+        // =====================================================================
+        drawSummaryScreen(spr, speed, volt, amp, rpm, pwr, isBatConnected, batPct, isCharging, count);
+        spr.pushSprite(0, 0);
+        return;
     }
 
     if (screen == 0) {
-        // --- SCREEN 0: DRIVE DASHBOARD (REDESIGNED WITH ROTATING MOTOR ANIMATION) ---
-        // Left Column: Telemetry readings
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("SET SPEED:", 10, 32, 2);
-        spr.drawString("ACT RPM:", 10, 68, 2);
-        
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK); // Cyberpunk Cyan
+        // =====================================================================
+        // SCREEN 0: SURGICAL DRIVE DASHBOARD (PERFECT 50/50 HALF-AND-HALF SPLIT!)
+        // Left Card: Surgical Drive Telemetry (50%) | Right Card: Motor Animation (50%)
+        // =====================================================================
+        int margin = 4;
+        int gap = 6;
+        int cardW = (spr.width() - (margin * 2) - gap) / 2; // Exact 50% width! (113px on 240, 153px on 320)
+        int cardH = 84;
+        int cardY = 28;
+
+        int card1X = margin;
+        int card2X = margin + cardW + gap;
+
+        int cx1 = card1X + (cardW / 2); // Center of Left Card (x=60 on 240, x=80 on 320)
+        int cx2 = card2X + (cardW / 2); // Center of Right Card (x=179 on 240, x=239 on 320)
+
+        // ---------------------------------------------------------------------
+        // 1. LEFT CARD (50%): SURGICAL DRIVE TELEMETRY
+        // ---------------------------------------------------------------------
+        spr.fillRoundRect(card1X, cardY, cardW, cardH, 6, COLOR_CARD);
+        spr.drawRoundRect(card1X, cardY, cardW, cardH, 6, COLOR_DIVIDER);
+
+        // Header Title Centered
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("SURGICAL DRIVE", cx1, cardY + 2, 2);
+        spr.drawFastHLine(card1X + 4, cardY + 17, cardW - 8, COLOR_DIVIDER);
+
         int percentSpeed = round((float)abs(speed) * 100.0f / 255.0f);
-        spr.drawString(String(percentSpeed) + "%", 90, 30, 4);
-        
-        spr.setTextColor(TFT_GREEN, TFT_BLACK); // Neon Green
-        spr.drawString(String(rpm), 90, 66, 4);
-        
-        // Motor Status Text
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("STATUS:", 10, 95, 2);
+
+        // Split-Column Centered Data Rows with Font 2
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Set Spd:", cx1 - 2, cardY + 20, 2);
+        spr.drawString("Act RPM:", cx1 - 2, cardY + 35, 2);
+        spr.drawString("Status:", cx1 - 2, cardY + 50, 2);
+
+        spr.setTextDatum(TL_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(String(percentSpeed) + "%", cx1 + 2, cardY + 20, 2);
+
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString(String(rpm), cx1 + 2, cardY + 35, 2);
+
         if (speed != 0) {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString(oscillatingMode ? "OSCILLATING" : "RUNNING", 70, 95, 2);
+            spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+            spr.drawString(speed > 0 ? "FWD" : "REV", cx1 + 2, cardY + 50, 2);
         } else {
-            spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-            spr.drawString("STANDBY", 70, 95, 2);
+            spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+            spr.drawString("IDLE", cx1 + 2, cardY + 50, 2);
         }
 
-        // Beautiful Spinning Motor Animation (Right Column)
-        int cx = 190;
-        int cy = 68;
+        // Sub-status mode tag with comfortable spacing (8px gap below Status line!)
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString(oscillatingMode ? "● OSCILLATING" : "● NORMAL DRIVE", cx1, cardY + 73, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // ---------------------------------------------------------------------
+        // 2. RIGHT CARD (50%): MOTOR ANIMATION CARD (EXACT SAME SIZE & SHAPE!)
+        // ---------------------------------------------------------------------
+        spr.fillRoundRect(card2X, cardY, cardW, cardH, 6, COLOR_CARD);
+        spr.drawRoundRect(card2X, cardY, cardW, cardH, 6, COLOR_DIVIDER);
+
+        // Header Direction Title Centered
+        spr.setTextDatum(TC_DATUM);
+        if (speed > 0) {
+            spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+            spr.drawString("MOTOR CW ↻", cx2, cardY + 2, 2);
+        } else if (speed < 0) {
+            spr.setTextColor(COLOR_CORAL, COLOR_CARD);
+            spr.drawString("MOTOR CCW ↺", cx2, cardY + 2, 2);
+        } else {
+            spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+            spr.drawString("MOTOR STANDBY", cx2, cardY + 2, 2);
+        }
+        spr.drawFastHLine(card2X + 4, cardY + 17, cardW - 8, COLOR_DIVIDER);
+        spr.setTextDatum(TL_DATUM);
+
+        // Modern 2026 3-Blade Aerodynamic Surgical Motor Turbine
+        int cy = cardY + 49;
         int r = 24;
-        
-        // Casing and outer ring
-        spr.drawCircle(cx, cy, r + 4, TFT_DARKGREY);
-        spr.drawCircle(cx, cy, r, tft.color565(71, 85, 105)); // Slate Gray Casing
-        
-        // Spinning Angle Calculation proportional to motor speed
+
+        // Outer Calibration Dial with 8 radial precision tick marks
+        spr.drawCircle(cx2, cy, r + 4, COLOR_DIVIDER);
+        for (int a = 0; a < 360; a += 45) {
+            float rad = a * DEG_TO_RAD;
+            int x1 = cx2 + (int)((r + 2) * cos(rad));
+            int y1 = cy + (int)((r + 2) * sin(rad));
+            int x2 = cx2 + (int)((r + 4) * cos(rad));
+            int y2 = cy + (int)((r + 4) * sin(rad));
+            spr.drawLine(x1, y1, x2, y2, (a % 90 == 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER);
+        }
+
+        // Inner Motor Track
+        spr.drawCircle(cx2, cy, r, (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_DIVIDER);
+
+        // Dynamic 3-Blade Aerodynamic Motor with Trailing Orbital Energy Glow
         static float currentAngle = 0;
         if (speed != 0) {
-            currentAngle += (speed / 255.0f) * 12.0f; // Multiplier defines spinning speed
+            currentAngle += (speed / 255.0f) * 16.0f;
             if (currentAngle >= 360.0f) currentAngle -= 360.0f;
             if (currentAngle < 0.0f) currentAngle += 360.0f;
         }
-        
-        // Draw 4 spokes
-        for (int i = 0; i < 4; i++) {
-            float rad = (currentAngle + (i * 90)) * DEG_TO_RAD;
-            int x_end = cx + (int)(r * cos(rad));
-            int y_end = cy + (int)(r * sin(rad));
-            uint16_t spokeColor = (speed != 0) ? tft.color565(34, 197, 94) : TFT_DARKGREY; // Green if turning, dark grey if idle
-            spr.drawLine(cx, cy, x_end, y_end, spokeColor);
-        }
-        
-        // Center spindle
-        spr.fillCircle(cx, cy, 5, (speed != 0) ? TFT_YELLOW : TFT_LIGHTGREY);
-        
-        // Direction Labels above the animation
-        if (speed > 0) {
-            spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-            spr.drawString("FWD CW ↻", cx - 25, 28, 1);
-        } else if (speed < 0) {
-            spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-            spr.drawString("REV CCW ↺", cx - 25, 28, 1);
-        } else {
-            spr.setTextColor(TFT_DARKGREY, TFT_BLACK);
-            spr.drawString("STOPPED", cx - 22, 28, 1);
+
+        for (int i = 0; i < 3; i++) {
+            float aTip = (currentAngle + (i * 120)) * DEG_TO_RAD;
+            float aTail = (currentAngle + (i * 120) - (speed >= 0 ? 30 : -30)) * DEG_TO_RAD;
+
+            int xt = cx2 + (int)((r - 1) * cos(aTip));
+            int yt = cy + (int)((r - 1) * sin(aTip));
+            int xm = cx2 + (int)((r - 8) * cos(aTail));
+            int ym = cy + (int)((r - 8) * sin(aTail));
+            int xr = cx2 + (int)(7 * cos(aTip - 0.2));
+            int yr = cy + (int)(7 * sin(aTip - 0.2));
+
+            uint16_t bCol = (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_TXT_MUTED;
+            uint16_t sCol = (speed != 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER;
+
+            spr.drawLine(xt, yt, xm, ym, bCol);
+            spr.drawLine(xm, ym, xr, yr, sCol);
+            spr.drawLine(xt, yt, xr, yr, bCol);
+
+            // Trailing orbital energy glow particle along outer perimeter
+            if (speed != 0) {
+                float aTrail = (currentAngle + (i * 120) - (speed >= 0 ? 50 : -50)) * DEG_TO_RAD;
+                int xp = cx2 + (int)((r - 1) * cos(aTrail));
+                int yp = cy + (int)((r - 1) * sin(aTrail));
+                spr.drawPixel(xp, yp, COLOR_GLOW_CYAN);
+            }
         }
 
-        // FOOTER ZONE
-        spr.drawFastHLine(0, 115, spr.width(), TFT_DARKGREY); 
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString("GRAFTS COUNT: " + String(count), 5, 118, 2);
+        // Center Surgical Collet Hub
+        spr.fillCircle(cx2, cy, 7, COLOR_CARD);
+        spr.drawCircle(cx2, cy, 7, COLOR_GLOW_BLUE);
+        spr.fillCircle(cx2, cy, 3, (speed != 0) ? (speed > 0 ? COLOR_GLOW_CYAN : COLOR_AMBER) : COLOR_TXT_MUTED);
+
+        // ---------------------------------------------------------------------
+        // 3. FOOTER ZONE (SYMMETRICALLY BALANCED)
+        // ---------------------------------------------------------------------
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
+        spr.setTextColor(COLOR_AMBER, COLOR_BG);
+        spr.drawString("GRAFTS: " + String(count) + " completed", 6, 118, 2);
 
         if (speed != 0) {
-            spr.setTextColor(speed > 0 ? tft.color565(56, 189, 248) : TFT_ORANGE, TFT_BLACK); 
+            spr.setTextColor(speed > 0 ? COLOR_GLOW_CYAN : COLOR_CORAL, COLOR_BG);
             spr.setTextDatum(TR_DATUM);
-            // Dynamic moving chevron frames
             static uint8_t arrowFrame = 0;
             arrowFrame = (arrowFrame + 1) % 4;
             String arrowStr = "";
             if (speed > 0) {
                 for (int a = 0; a < 3; a++) arrowStr += (a == arrowFrame) ? ">" : "»";
-                spr.drawString("FWD " + arrowStr, spr.width() - 5, 118, 2);
+                spr.drawString("FWD " + arrowStr, spr.width() - 6, 118, 2);
             } else {
                 for (int a = 0; a < 3; a++) arrowStr += (a == (3 - arrowFrame)) ? "<" : "«";
-                spr.drawString(arrowStr + " REV", spr.width() - 5, 118, 2);
+                spr.drawString(arrowStr + " REV", spr.width() - 6, 118, 2);
             }
         } else {
-            spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
             spr.setTextDatum(TR_DATUM);
-            spr.drawString("IDLE", spr.width() - 5, 118, 2);
+            spr.drawString("IDLE", spr.width() - 6, 118, 2);
         }
-
+        spr.setTextDatum(TL_DATUM);
     } else if (screen == 1) {
-        // --- SCREEN 1: ENERGY STATUS (REDESIGNED GRID) ---
-        spr.drawFastVLine(120, 25, 65, TFT_DARKGREY);
-        
-        // Left Column: BATTERY
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("BATTERY:", 10, 30, 2);
-        spr.drawString("Voltage:", 10, 50, 2);
-        spr.drawString("Percent:", 10, 70, 2);
-        
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(volt, 2) + " V", 70, 50, 2);
-        spr.drawString(String(batPct) + " %", 70, 70, 2);
+        // =====================================================================
+        // SCREEN 1: ENERGY STATUS (DATA CENTERED ON LEFT, ROBOT ON RIGHT)
+        // =====================================================================
+        int cardW = spr.width() - 64;
+        int cardCX = 4 + (cardW / 2); // Exact horizontal center of data card!
 
-        // Right Column: LIVE SYSTEM LOAD
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("SYS LOAD:", 130, 30, 2);
-        spr.drawString("Current:", 130, 50, 2);
-        spr.drawString("Power:", 130, 70, 2);
+        // Left Data Card
+        spr.fillRoundRect(4, 30, cardW, 82, 6, COLOR_CARD);
+        spr.drawRoundRect(4, 30, cardW, 82, 6, COLOR_DIVIDER);
 
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString(String(amp, 3) + " A", 195, 50, 2);
-        spr.drawString(String(pwr, 1) + " W", 195, 70, 2);
-        
-        // Lower Zone: Charging/Discharging status bar
-        spr.drawFastHLine(0, 92, spr.width(), TFT_DARKGREY);
+        // Card Title Centered
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("ENERGY STATS", cardCX, 33, 2);
+        spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
+
+        // Split-Column Centered Data Rows with Increased Font 2 Sizes!
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Voltage:", cardCX - 4, 52, 2);
+        spr.drawString("Percent:", cardCX - 4, 68, 2);
+        spr.drawString("Current:", cardCX - 4, 84, 2);
+
+        spr.setTextDatum(TL_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString(String(volt, 2) + " V", cardCX + 4, 52, 2);
+        spr.drawString(String(batPct) + " %", cardCX + 4, 68, 2);
+
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(String(amp, 3) + " A", cardCX + 4, 84, 2);
+
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Power Output: " + String(pwr, 1) + " W", cardCX, 102, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Right Robot Companion Pod ("POWER BUDDY" looking LEFT at the energy readings!)
+        const char* pBadge = isCharging ? "⚡ CHG" : (batPct < 20 ? "LOW BAT" : "BAT OK");
+        uint16_t bColor = isCharging ? COLOR_EMERALD : (batPct < 20 ? COLOR_CORAL : COLOR_EMERALD);
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "POWER", pBadge, bColor, (batPct < 20));
+
+        // Lower Status Banner
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
         spr.setTextDatum(MC_DATUM);
         if (isCharging) {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("⚡ CHARGING SYSTEM (USB)", spr.width() / 2, 105, 2);
+            spr.setTextColor(COLOR_EMERALD, COLOR_BG);
+            spr.drawString("⚡ CHARGING (USB ACTIVE)", spr.width() / 2, 122, 1);
         } else {
-            spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-            spr.drawString("🔋 DISCHARGING (BATTERY)", spr.width() / 2, 105, 2);
+            spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+            spr.drawString("🔋 DISCHARGING (BATTERY ACTIVE)", spr.width() / 2, 122, 1);
         }
+        spr.setTextDatum(TL_DATUM);
 
     } else if (screen == 2) {
-        // --- SCREEN 2: NETWORK STATUS (REDESIGNED NON-BLOCKING WITH URL) ---
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("SSID/Mode:", 20, 30, 2);
-        spr.drawString("IP Address:", 20, 52, 2);
-        spr.drawString("Web URL:", 20, 74, 2);
-        spr.drawString("Active Clients:", 20, 96, 2);
+        // =====================================================================
+        // SCREEN 2: NETWORK STATUS (DATA CENTERED ON LEFT, ROBOT ON RIGHT)
+        // =====================================================================
+        int cardW = spr.width() - 64;
+        int cardCX = 4 + (cardW / 2);
 
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        
-        String ssidName = "AP Mode (El-Baseet)";
-        if (WiFi.status() == WL_CONNECTED) {
-            ssidName = WiFi.SSID();
-        } else if (wifiConnecting) {
-            ssidName = "Connecting...";
-        }
-        
-        if (ssidName.length() > 16) {
-            ssidName = ssidName.substring(0, 14) + "..";
-        }
-        
-        spr.drawString(ssidName, 120, 30, 2);
-        spr.drawString(ip, 120, 52, 2);
-        spr.drawString("elbaseet.local", 120, 74, 2);
-        spr.drawString(String(clients) + " Connected", 120, 96, 2);
-        
-        // Signal Quality representation at the bottom
-        if (WiFi.status() == WL_CONNECTED) {
-            int32_t rssi = WiFi.RSSI();
-            String sigStr = String(rssi) + " dBm ";
-            if (rssi >= -50) { spr.setTextColor(TFT_GREEN, TFT_BLACK); sigStr += "Excellent"; }
-            else if (rssi >= -70) { spr.setTextColor(TFT_YELLOW, TFT_BLACK); sigStr += "Good"; }
-            else { spr.setTextColor(TFT_ORANGE, TFT_BLACK); sigStr += "Weak"; }
-            spr.drawString("Signal: " + sigStr, 20, 116, 1);
-        } else {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("Signal: 100% (AP)", 20, 116, 1);
-        }
-        
+        // Left Data Card
+        spr.fillRoundRect(4, 30, cardW, 82, 6, COLOR_CARD);
+        spr.drawRoundRect(4, 30, cardW, 82, 6, COLOR_DIVIDER);
+
+        // Title Centered
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("NETWORK STATS", cardCX, 33, 2);
+        spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
+
+        String ssidName = "AP Mode";
+        if (WiFi.status() == WL_CONNECTED) ssidName = WiFi.SSID();
+        else if (wifiConnecting) ssidName = "Connecting...";
+
+        if (ssidName.length() > 14) ssidName = ssidName.substring(0, 12) + "..";
+
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("SSID:", cardCX - 4, 52, 2);
+        spr.drawString("IP:", cardCX - 4, 68, 2);
+        spr.drawString("URL:", cardCX - 4, 84, 2);
+
+        spr.setTextDatum(TL_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(ssidName, cardCX + 4, 52, 2);
+        spr.drawString(ip, cardCX + 4, 68, 2);
+        spr.drawString("elbaseet.local", cardCX + 4, 84, 2);
+
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString(String(clients) + " Active Client(s)", cardCX, 102, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Right Robot Companion Pod ("NET BUDDY" looking LEFT at IP & URL!)
+        const char* nBadge = (WiFi.status() == WL_CONNECTED) ? "ONLINE" : "AP READY";
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "NETWORK", nBadge, COLOR_EMERALD, false);
+
+        // Lower Status Banner
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+        spr.drawString("Web Control: http://elbaseet.local", spr.width() / 2, 122, 1);
+        spr.setTextDatum(TL_DATUM);
+
     } else if (screen == 3) {
-        // --- SCREEN 3: OSCILLATION SETTINGS (REDESIGNED) ---
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Drive Mode:", 15, 32, 2);
-        spr.drawString("CW Duration:", 15, 57, 2);
-        spr.drawString("CCW Duration:", 15, 82, 2);
-        spr.drawString("Total Period:", 15, 107, 2);
+        // =====================================================================
+        // SCREEN 3: OSCILLATION SETTINGS (DATA CENTERED ON LEFT, ROBOT ON RIGHT)
+        // =====================================================================
+        int cardW = spr.width() - 64;
+        int cardCX = 4 + (cardW / 2);
 
+        spr.fillRoundRect(4, 30, cardW, 82, 6, COLOR_CARD);
+        spr.drawRoundRect(4, 30, cardW, 82, 6, COLOR_DIVIDER);
+
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("OSCILLATION", cardCX, 33, 2);
+        spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
+
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Mode:", cardCX - 4, 52, 2);
+        spr.drawString("CW Time:", cardCX - 4, 68, 2);
+        spr.drawString("CCW Time:", cardCX - 4, 84, 2);
+
+        spr.setTextDatum(TL_DATUM);
         if (oscMode) {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("OSCILLATING Mode", 125, 32, 2);
+            spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+            spr.drawString("OSCILLATING", cardCX + 4, 52, 2);
         } else {
-            spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-            spr.drawString("CONTINUOUS Mode", 125, 32, 2);
+            spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+            spr.drawString("CONTINUOUS", cardCX + 4, 52, 2);
         }
 
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString(String(oscCW) + " ms", 125, 57, 2);
-        spr.drawString(String(oscCCW) + " ms", 125, 82, 2);
-        
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(String(oscCW) + " ms", cardCX + 4, 68, 2);
+        spr.drawString(String(oscCCW) + " ms", cardCX + 4, 84, 2);
+
         uint32_t totalPeriod = oscCW + oscCCW;
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(totalPeriod) + " ms", 125, 107, 2);
-        
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString("Total Period: " + String(totalPeriod) + " ms", cardCX, 102, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Right Robot Companion Pod
+        const char* oBadge = oscMode ? "BI-DIR" : "UNI-DIR";
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "CYCLE", oBadge, COLOR_GLOW_BLUE, false);
+
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+        spr.drawString(oscMode ? "Bi-Directional Dissection Active" : "Unidirectional Precision Drive Active", spr.width() / 2, 122, 1);
+        spr.setTextDatum(TL_DATUM);
+
     } else if (screen == 4) {
-        // --- SCREEN 4: DIAGNOSTICS (REDESIGNED GRID) ---
-        spr.drawFastVLine(120, 25, 65, TFT_DARKGREY);
-        
-        // Left Column: CALIBRATION
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("CALIBRATION:", 10, 30, 2);
-        spr.drawString("Base I:", 10, 50, 2);
-        spr.drawString("Status:", 10, 70, 2);
-        
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        spr.drawString(String(baselineCurrent, 3) + " A", 70, 50, 2);
-        if (calibrationNeeded) {
-            spr.setTextColor(TFT_RED, TFT_BLACK);
-            spr.drawString("CALIB", 70, 70, 2);
-        } else {
-            spr.setTextColor(TFT_GREEN, TFT_BLACK);
-            spr.drawString("STABLE", 70, 70, 2);
-        }
+        // =====================================================================
+        // SCREEN 4: DIAGNOSTICS & THRESHOLDS (DATA CENTERED ON LEFT, ROBOT ON RIGHT)
+        // =====================================================================
+        int cardW = spr.width() - 64;
+        int cardCX = 4 + (cardW / 2);
 
-        // Right Column: THRESHOLDS
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("THRESHOLDS:", 130, 30, 2);
-        spr.drawString("Spike I:", 130, 50, 2);
-        spr.drawString("Reset I:", 130, 70, 2);
+        spr.fillRoundRect(4, 30, cardW, 82, 6, COLOR_CARD);
+        spr.drawRoundRect(4, 30, cardW, 82, 6, COLOR_DIVIDER);
 
-        spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-        spr.drawString(String(baselineCurrent + penetrationOffset, 3) + " A", 190, 50, 2);
-        spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 3) + " A", 190, 70, 2);
-        
-        // Bottom Sensitivity bar
-        spr.drawFastHLine(0, 92, spr.width(), TFT_DARKGREY);
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
-        spr.drawString("Sens Offset: " + String(penetrationOffset, 3) + "A | Hyst: " + String(penetrationHysteresis, 3) + "A", 10, 98, 2);
-        
-        // LED Illumination Telemetry
-        spr.setTextColor(TFT_YELLOW, TFT_BLACK);
-        uint8_t ledDiagPct = round((float)ledBrightness * 100.0f / 255.0f);
-        spr.drawString("LED Pin 18: " + String(ledDiagPct) + "% | PWM: " + String(ledBrightness) + " / 255", 10, 118, 1);
-        
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("DIAGNOSTICS", cardCX, 33, 2);
+        spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
+
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Base I:", cardCX - 4, 52, 2);
+        spr.drawString("Spike I:", cardCX - 4, 68, 2);
+        spr.drawString("Reset I:", cardCX - 4, 84, 2);
+
+        spr.setTextDatum(TL_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString(String(baselineCurrent, 3) + " A", cardCX + 4, 52, 2);
+
+        spr.setTextColor(COLOR_CORAL, COLOR_CARD);
+        spr.drawString(String(baselineCurrent + penetrationOffset, 3) + " A", cardCX + 4, 68, 2);
+        spr.drawString(String((baselineCurrent + penetrationOffset) - penetrationHysteresis, 3) + " A", cardCX + 4, 84, 2);
+
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("Sens: " + String(penetrationOffset, 3) + "A | Hys: " + String(penetrationHysteresis, 3) + "A", cardCX, 102, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Right Robot Companion Pod
+        const char* dBadge = calibrationNeeded ? "CALIB" : "CAL OK";
+        uint16_t cColor = calibrationNeeded ? COLOR_CORAL : COLOR_EMERALD;
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "SENSORS", dBadge, cColor, calibrationNeeded);
+
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_BG);
+        spr.drawString(calibrationNeeded ? "Calibration Required: Keep Pen in Air" : "Sensor Baseline Stable & Calibrated", spr.width() / 2, 122, 1);
+        spr.setTextDatum(TL_DATUM);
+
     } else {
-        // --- SCREEN 5: PATIENT INFO (REDESIGNED) ---
-        spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        spr.drawString("Active Patient Name:", 15, 32, 2);
-        spr.drawString("Patient Age / Gen:", 15, 62, 2);
-        spr.drawString("Patient Nationality:", 15, 92, 2);
+        // =====================================================================
+        // SCREEN 5: PATIENT CLINICAL INFO (DATA CENTERED ON LEFT, ROBOT ON RIGHT)
+        // =====================================================================
+        int cardW = spr.width() - 64;
+        int cardCX = 4 + (cardW / 2);
 
-        spr.setTextColor(tft.color565(56, 189, 248), TFT_BLACK);
+        spr.fillRoundRect(4, 30, cardW, 82, 6, COLOR_CARD);
+        spr.drawRoundRect(4, 30, cardW, 82, 6, COLOR_DIVIDER);
+
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString("PATIENT RECORD", cardCX, 33, 2);
+        spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
+
         String shortName = pName;
-        if (shortName.length() > 18) {
-            shortName = shortName.substring(0, 16) + "..";
-        }
-        spr.drawString(shortName, 150, 32, 2);
-        spr.drawString(pAge, 150, 62, 2);
-        spr.drawString(pNat, 150, 92, 2);
+        if (shortName.length() > 14) shortName = shortName.substring(0, 12) + "..";
+
+        spr.setTextDatum(TR_DATUM);
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("Patient:", cardCX - 4, 52, 2);
+        spr.drawString("Age / Gen:", cardCX - 4, 68, 2);
+        spr.drawString("Nation:", cardCX - 4, 84, 2);
+
+        spr.setTextDatum(TL_DATUM);
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(shortName, cardCX + 4, 52, 2);
+        spr.drawString(pAge, cardCX + 4, 68, 2);
+        spr.drawString(pNat, cardCX + 4, 84, 2);
+
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString("● Clinical Session Active", cardCX, 102, 1);
+        spr.setTextDatum(TL_DATUM);
+
+        // Right Robot Companion Pod
+        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "RECORD", "LOGGED", COLOR_EMERALD, false);
+
+        spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
+        spr.setTextDatum(MC_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_BG);
+        spr.drawString("Clinical Session Active - Telemetry Logged", spr.width() / 2, 122, 1);
+        spr.setTextDatum(TL_DATUM);
     }
 
-    // Finally, push the completed sprite to the screen
     spr.pushSprite(0, 0);
 }
 
 /**
- * @brief Sets a confirmation message to be displayed on the OLED.
+ * @brief Displays a temporary confirmation message on the screen.
  * @param msg The message string to display.
  */
 void displayWebConfirmation(String msg) {
@@ -676,7 +1206,7 @@ void displayWebConfirmation(String msg) {
 }
 
 /**
- * @brief Sets a confirmation message specifically for graft detection.
+ * @brief Displays a confirmation message specifically for graft detection.
  * @param count The new graft count to display.
  */
 void displayGraftFlash(uint32_t count) {
