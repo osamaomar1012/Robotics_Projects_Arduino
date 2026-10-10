@@ -42,6 +42,8 @@ void showWelcomeAnimation();
 void showStartOperationAnimation();
 void showStopOperationAnimation();
 void showReportAnimation();
+void drawReportCountdownFrame(int secondsRemaining, int totalSeconds = 5);
+void displayReportGeneratingCountdown(int totalSeconds = 5);
 
 // Extern global references for local menu system & telemetry
 extern bool inMenuMode;
@@ -160,63 +162,220 @@ void drawRobotFaceCompact(TFT_eSprite &target, int16_t x, int16_t y, bool isRunn
  *        side of screens and menus, with telemetry/menu text cleanly positioned to its LEFT.
  *        The robot eyes look LEFT at the data/menu choices!
  */
-void drawRobotCompanionPod(TFT_eSprite &target, int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* badge, uint16_t badgeColor, bool alertEye) {
+// =============================================================================
+// --- UNIVERSAL MORPHING ROBOT COMPANION ENGINE ("EL-BASEET BUDDY") ---
+// =============================================================================
+enum MorphTargetType {
+    MORPH_MOTOR = 0,       // Screen 0: Spinning 3-Blade Motor Turbine
+    MORPH_LIGHTNING = 1,   // Screen 1: Glowing High-Voltage Energy Bolt
+    MORPH_WIFI = 2,        // Screen 2: Concentric Radiating WiFi Waves
+    MORPH_OSCILLATION = 3, // Screen 3: Bi-Directional Harmonic Wave
+    MORPH_DIAGNOSTICS = 4, // Screen 4: Medical ECG / Sensor Current Spike
+    MORPH_PATIENT = 5,     // Screen 5: Clinical Cross Shield
+    MORPH_GEAR = 6         // System Menu: Precision Mechanical Config Gear
+};
+
+/**
+ * @brief Draws the dynamic morphing robot companion pod.
+ *        The robot face blinks, smiles, and smoothly transforms into the screen's
+ *        thematic artifact (turbine, lightning, wifi, wave, ecg, shield, gear)
+ *        and then transforms back into the friendly smiling robot companion!
+ */
+void drawUniversalMorphingPod(TFT_eSprite &target, int16_t x, int16_t y, int16_t w, int16_t h, const char* robotTitle, const char* morphTitle, const char* badge, uint16_t badgeColor, uint8_t morphType, int16_t liveSpeed = 0) {
     target.fillRoundRect(x, y, w, h, 6, COLOR_CARD);
     target.drawRoundRect(x, y, w, h, 6, COLOR_GLOW_BLUE);
 
-    // Header label
-    target.setTextDatum(TC_DATUM);
-    target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
-    target.drawString(title, x + w / 2, y + 4, 1);
-
-    // Visor Face
     int16_t cx = x + w / 2;
     int16_t cy = y + 36;
 
-    target.fillRoundRect(cx - 20, cy - 14, 40, 28, 6, COLOR_BG);
-    target.drawRoundRect(cx - 20, cy - 14, 40, 28, 6, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+    // 10-Second Continuous Morphing Cycle:
+    // 0..3500ms: Robot Face (0.0)
+    // 3500..5000ms: Morphing to Artifact (0.0 -> 1.0)
+    // 5000..8500ms: Artifact Mode (1.0)
+    // 8500..10000ms: Morphing back to Robot (1.0 -> 0.0)
+    uint32_t t = millis() % 10000;
+    float morph = 0.0f;
 
-    // Ear Nodes
-    target.fillRoundRect(cx - 23, cy - 5, 4, 10, 2, COLOR_GLOW_BLUE);
-    target.fillRoundRect(cx + 19, cy - 5, 4, 10, 2, COLOR_GLOW_BLUE);
-
-    // Eyes (Looking LEFT at the data!)
-    uint32_t t = millis() % 3500;
-    bool isBlink = (t < 150);
-
-    int16_t lx = cx - 8;
-    int16_t rx = cx + 8;
-    int16_t ey = cy - 2;
-
-    if (isBlink) {
-        target.drawFastHLine(lx - 4, ey, 9, COLOR_GLOW_CYAN);
-        target.drawFastHLine(rx - 4, ey, 9, COLOR_GLOW_CYAN);
+    // If motor is actively running on Screen 0, lock to Turbine mode for live speed visualization!
+    if (morphType == MORPH_MOTOR && liveSpeed != 0) {
+        morph = 1.0f;
     } else {
-        uint16_t eColor = alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN;
-        target.fillCircle(lx, ey, 4, eColor);
-        target.fillCircle(rx, ey, 4, eColor);
-
-        target.fillCircle(lx - 2, ey, 2, COLOR_BG);
-        target.fillCircle(rx - 2, ey, 2, COLOR_BG);
-
-        target.drawPixel(lx, ey - 2, COLOR_TXT_WHITE);
-        target.drawPixel(rx, ey - 2, COLOR_TXT_WHITE);
+        if (t < 3500) morph = 0.0f;
+        else if (t < 5000) {
+            float p = (t - 3500) / 1500.0f;
+            morph = sin(p * 1.5707963f);
+        } else if (t < 8500) morph = 1.0f;
+        else {
+            float p = (t - 8500) / 1500.0f;
+            morph = cos(p * 1.5707963f);
+        }
     }
 
-    // Blushing Pink Cheeks
-    target.drawPixel(cx - 14, cy + 6, COLOR_PINK);
-    target.drawPixel(cx + 14, cy + 6, COLOR_PINK);
+    // Dynamic Pod Header
+    target.setTextDatum(TC_DATUM);
+    if (morph < 0.5f) {
+        target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        target.drawString(robotTitle, cx, y + 4, 1);
+    } else {
+        target.setTextColor(COLOR_AMBER, COLOR_CARD);
+        target.drawString(morphTitle, cx, y + 4, 1);
+    }
 
-    // Warm Smile
-    target.drawFastHLine(cx - 4, cy + 8, 9, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
-    target.drawPixel(cx - 5, cy + 7, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
-    target.drawPixel(cx + 5, cy + 7, alertEye ? COLOR_CORAL : COLOR_GLOW_CYAN);
+    // Dynamic Visor Shell
+    int16_t vw = (int16_t)(38.0f - morph * 4.0f);
+    int16_t vh = (int16_t)(28.0f - morph * 2.0f);
+    target.fillRoundRect(cx - vw / 2, cy - vh / 2, vw, vh, 5, COLOR_BG);
+    target.drawRoundRect(cx - vw / 2, cy - vh / 2, vw, vh, 5, (morph > 0.5f) ? COLOR_GLOW_BLUE : COLOR_GLOW_CYAN);
+
+    // Ear Nodes (fade as morph increases)
+    if (morph < 0.6f) {
+        int16_t earW = (int16_t)((1.0f - morph / 0.6f) * 4.0f);
+        if (earW > 0) {
+            target.fillRoundRect(cx - vw / 2 - earW, cy - 5, earW + 1, 10, 2, COLOR_GLOW_BLUE);
+            target.fillRoundRect(cx + vw / 2 - 1, cy - 5, earW + 1, 10, 2, COLOR_GLOW_BLUE);
+        }
+    }
+
+    // --- RENDER VISUAL BASED ON MORPH PROGRESS ---
+    if (morph < 0.45f) {
+        // =====================================================================
+        // ROBOT AVATAR FACE (Blinking, Looking Left at Telemetry, Smiling)
+        // =====================================================================
+        uint32_t bt = millis() % 3600;
+        bool isBlink = (bt < 150) && (morph < 0.2f);
+
+        int16_t lx = cx - 7;
+        int16_t rx = cx + 7;
+        int16_t ey = cy - 2;
+
+        if (isBlink) {
+            target.drawFastHLine(lx - 3, ey, 7, COLOR_GLOW_CYAN);
+            target.drawFastHLine(rx - 3, ey, 7, COLOR_GLOW_CYAN);
+        } else {
+            target.fillCircle(lx, ey, 3, COLOR_GLOW_CYAN);
+            target.fillCircle(rx, ey, 3, COLOR_GLOW_CYAN);
+            // Pupils looking LEFT at the menu/data
+            target.fillCircle(lx - 1, ey, 1, COLOR_BG);
+            target.fillCircle(rx - 1, ey, 1, COLOR_BG);
+            // Reflection sparkle
+            target.drawPixel(lx, ey - 1, COLOR_TXT_WHITE);
+            target.drawPixel(rx, ey - 1, COLOR_TXT_WHITE);
+        }
+
+        // Blushing pink cheeks
+        target.drawPixel(cx - 12, cy + 5, COLOR_PINK);
+        target.drawPixel(cx + 12, cy + 5, COLOR_PINK);
+
+        // Smile
+        target.drawFastHLine(cx - 3, cy + 6, 7, COLOR_AMBER);
+        target.drawPixel(cx - 4, cy + 5, COLOR_AMBER);
+        target.drawPixel(cx + 4, cy + 5, COLOR_AMBER);
+
+    } else {
+        // =====================================================================
+        // MORPHED SYMBOLIC ARTIFACT (Custom per Screen!)
+        // =====================================================================
+        if (morphType == MORPH_MOTOR) {
+            // --- SCREEN 0: MOTOR TURBINE ---
+            int r = 10;
+            static float turbineAngle = 0;
+            float rotSpeed = (liveSpeed != 0) ? ((float)liveSpeed / 100.0f * 16.0f) : 3.5f;
+            turbineAngle += rotSpeed;
+            if (turbineAngle >= 360.0f) turbineAngle -= 360.0f;
+
+            target.drawCircle(cx, cy, r + 2, COLOR_DIVIDER);
+            for (int i = 0; i < 3; i++) {
+                float a = (turbineAngle + i * 120) * DEG_TO_RAD;
+                int tx = cx + (int)(r * cos(a));
+                int ty = cy + (int)(r * sin(a));
+                target.drawLine(cx, cy, tx, ty, (liveSpeed != 0 && liveSpeed < 0) ? COLOR_CORAL : COLOR_GLOW_CYAN);
+            }
+            target.fillCircle(cx, cy, 3, COLOR_AMBER);
+
+        } else if (morphType == MORPH_LIGHTNING) {
+            // --- SCREEN 1: GLOWING LIGHTNING BOLT ---
+            // High-voltage zigzag lightning bolt
+            int lx = cx;
+            int ly = cy;
+            target.fillTriangle(lx + 1, ly - 9, lx - 5, ly, lx, ly, COLOR_AMBER);
+            target.fillTriangle(lx, ly, lx - 3, ly, lx - 1, ly + 9, COLOR_AMBER);
+            target.fillTriangle(lx, ly, lx + 5, ly, lx - 1, ly + 9, COLOR_GLOW_CYAN);
+            // Pulsing energy sparks
+            if ((millis() / 120) % 2 == 0) {
+                target.drawPixel(lx - 7, ly - 4, COLOR_GLOW_CYAN);
+                target.drawPixel(lx + 7, ly + 4, COLOR_AMBER);
+            }
+
+        } else if (morphType == MORPH_WIFI) {
+            // --- SCREEN 2: RADIATING CONCENTRIC WIFI WAVES ---
+            int phase = (millis() / 250) % 3;
+            target.fillCircle(cx, cy + 5, 2, COLOR_GLOW_CYAN);
+            for (int wIdx = 0; wIdx < 3; wIdx++) {
+                int rad = 6 + wIdx * 4;
+                uint16_t wColor = (wIdx <= phase) ? COLOR_GLOW_CYAN : COLOR_DIVIDER;
+                for (int deg = 225; deg <= 315; deg += 15) {
+                    float radVal = deg * DEG_TO_RAD;
+                    target.drawPixel(cx + (int)(rad * cos(radVal)), cy + 5 + (int)(rad * sin(radVal)), wColor);
+                }
+            }
+
+        } else if (morphType == MORPH_OSCILLATION) {
+            // --- SCREEN 3: BI-DIRECTIONAL HARMONIC SINE WAVE ---
+            static float waveShift = 0;
+            waveShift += 0.25f;
+            for (int wx = -12; wx <= 12; wx++) {
+                int wy = (int)(sin((wx * 0.35f) + waveShift) * 5.0f);
+                target.drawPixel(cx + wx, cy + wy, COLOR_GLOW_CYAN);
+            }
+            // Bi-directional cycling arrows
+            target.drawPixel(cx - 10, cy - 6, COLOR_EMERALD);
+            target.drawPixel(cx + 10, cy + 6, COLOR_AMBER);
+
+        } else if (morphType == MORPH_DIAGNOSTICS) {
+            // --- SCREEN 4: MEDICAL ECG / SENSOR PULSE SPIKE ---
+            static int ecgTick = 0;
+            ecgTick = (ecgTick + 1) % 24;
+            for (int ex = -12; ex <= 12; ex++) {
+                int eyOff = 0;
+                int pos = ex + 12;
+                if (pos == ecgTick) eyOff = -7;
+                else if (pos == (ecgTick + 1) % 24) eyOff = 5;
+                else if (pos == (ecgTick + 2) % 24) eyOff = -2;
+                target.drawPixel(cx + ex, cy + eyOff, COLOR_CORAL);
+            }
+
+        } else if (morphType == MORPH_PATIENT) {
+            // --- SCREEN 5: GLOWING CLINICAL CROSS SHIELD ---
+            target.drawRoundRect(cx - 10, cy - 9, 20, 18, 4, COLOR_GLOW_BLUE);
+            target.fillRect(cx - 2, cy - 6, 4, 12, COLOR_EMERALD);
+            target.fillRect(cx - 6, cy - 2, 12, 4, COLOR_EMERALD);
+            target.drawPixel(cx - 1, cy - 1, COLOR_TXT_WHITE);
+
+        } else if (morphType == MORPH_GEAR) {
+            // --- SYSTEM MENU: PRECISION CONFIG GEAR ---
+            int r = 8;
+            static float gearAngle = 0;
+            gearAngle += 3.0f;
+            if (gearAngle >= 360.0f) gearAngle -= 360.0f;
+
+            target.drawCircle(cx, cy, r, COLOR_AMBER);
+            for (int tooth = 0; tooth < 8; tooth++) {
+                float a = (gearAngle + tooth * 45) * DEG_TO_RAD;
+                int gx = cx + (int)((r + 2) * cos(a));
+                int gy = cy + (int)((r + 2) * sin(a));
+                target.drawPixel(gx, gy, COLOR_GLOW_CYAN);
+            }
+            target.fillCircle(cx, cy, 3, COLOR_BG);
+            target.drawCircle(cx, cy, 3, COLOR_GLOW_BLUE);
+        }
+    }
 
     // Status Badge at bottom of pod
     target.setTextDatum(BC_DATUM);
     target.setTextColor(badgeColor, COLOR_CARD);
-    target.drawString(badge, x + w / 2, y + h - 5, 1);
+    target.drawString(badge, cx, y + h - 5, 1);
 }
+
 
 /**
  * @brief Initializes the ST7789 display controller on TTGO / S3.
@@ -253,23 +412,92 @@ void setupOLED() {
 void showWelcomeLogo() {
     if (!s_oledInitialized) return;
 
-    spr.fillSprite(COLOR_BG);
-    spr.setTextDatum(MC_DATUM);
+    // Phase 1: Letter-by-letter writing animation with laser cursor
+    const char* welcomeStr = "WELCOME";
+    int len = strlen(welcomeStr);
 
-    spr.fillRoundRect(10, 10, spr.width() - 20, spr.height() - 20, 10, COLOR_CARD);
-    spr.drawRoundRect(10, 10, spr.width() - 20, spr.height() - 20, 10, COLOR_GLOW_CYAN);
-    spr.drawRoundRect(11, 11, spr.width() - 22, spr.height() - 22, 9, COLOR_GLOW_BLUE);
+    for (int i = 1; i <= len; i++) {
+        spr.fillSprite(COLOR_BG);
+        spr.fillRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_CARD);
+        spr.drawRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_GLOW_CYAN);
+        spr.drawRoundRect(9, 9, spr.width() - 18, spr.height() - 18, 7, COLOR_GLOW_BLUE);
 
-    spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
-    spr.setFreeFont(FF22); // FreeSansBold 12pt
-    spr.drawString("EL-BASEET", spr.width() / 2, 50);
+        char tempBuf[12];
+        strncpy(tempBuf, welcomeStr, i);
+        tempBuf[i] = ' ';
 
-    spr.setTextColor(COLOR_AMBER, COLOR_CARD);
-    spr.setFreeFont(FF17); // FreeSans 9pt
-    spr.drawString("SURGICAL HAIR PEN", spr.width() / 2, 85);
+        spr.setTextDatum(MC_DATUM);
+        spr.setFreeFont(FF22); // FreeSansBold 12pt
+        spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+        spr.drawString(String(tempBuf) + "_", spr.width() / 2, 45);
 
-    spr.setTextFont(1);
-    spr.pushSprite(0, 0);
+        spr.setTextFont(1);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString("EL-BASEET SURGICAL PEN", spr.width() / 2, 75, 2);
+
+        spr.pushSprite(0, 0);
+        delay(60);
+    }
+
+    delay(200);
+
+    // Phase 2: "WELCOME" smoothly morphs into the Robot Avatar Face!
+    int cx = spr.width() / 2;
+    int cy = spr.height() / 2;
+
+    for (int step = 0; step <= 20; step++) {
+        float p = step / 20.0f;
+        spr.fillSprite(COLOR_BG);
+        spr.fillRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_CARD);
+        spr.drawRoundRect(8, 8, spr.width() - 16, spr.height() - 16, 8, COLOR_GLOW_CYAN);
+
+        // Header brand subtitle
+        spr.setTextDatum(TC_DATUM);
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString("EL-BASEET SURGICAL PEN", cx, 16, 2);
+
+        // Robot Face Visor expands into view
+        int w = (int)(20 + p * 36); // 20 -> 56
+        int h = (int)(14 + p * 24); // 14 -> 38
+        spr.fillRoundRect(cx - w / 2, cy - h / 2 + 6, w, h, 6, COLOR_BG);
+        spr.drawRoundRect(cx - w / 2, cy - h / 2 + 6, w, h, 6, COLOR_GLOW_CYAN);
+
+        // Ear nodes appear
+        if (p > 0.4f) {
+            spr.fillRoundRect(cx - w / 2 - 4, cy + 2, 4, 12, 2, COLOR_GLOW_BLUE);
+            spr.fillRoundRect(cx + w / 2, cy + 2, 4, 12, 2, COLOR_GLOW_BLUE);
+        }
+
+        // Eyes open and shine
+        if (p > 0.5f) {
+            int eyeDist = 12;
+            int ey = cy + 2;
+            spr.fillCircle(cx - eyeDist, ey, 4, COLOR_GLOW_CYAN);
+            spr.fillCircle(cx + eyeDist, ey, 4, COLOR_GLOW_CYAN);
+            spr.drawPixel(cx - eyeDist - 1, ey - 1, COLOR_TXT_WHITE);
+            spr.drawPixel(cx + eyeDist - 1, ey - 1, COLOR_TXT_WHITE);
+        }
+
+        // Cheeks & Smile appear
+        if (p > 0.7f) {
+            spr.drawPixel(cx - 16, cy + 10, COLOR_PINK);
+            spr.drawPixel(cx + 16, cy + 10, COLOR_PINK);
+
+            spr.drawFastHLine(cx - 5, cy + 12, 11, COLOR_AMBER);
+            spr.drawPixel(cx - 6, cy + 11, COLOR_AMBER);
+            spr.drawPixel(cx + 6, cy + 11, COLOR_AMBER);
+        }
+
+        spr.setTextDatum(BC_DATUM);
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString("● READY STANDBY", cx, spr.height() - 14, 2);
+
+        spr.pushSprite(0, 0);
+        delay(25);
+    }
+
+    // Celebration wink & pause
+    delay(400);
 }
 
 /**
@@ -395,7 +623,7 @@ void drawSummaryScreen(TFT_eSprite &target, int16_t speed, float volt, float amp
         target.drawString("STANDBY IDLE", card2X + 46, colY + 18, 1);
     }
 
-    int pSpd = round((float)webBaseSpeed * 100.0f / 255.0f);
+    int pSpd = webBaseSpeed;
     target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
     target.drawString(String(pSpd) + "% (" + String(rpm) + ")", card2X + 46, colY + 33, 1);
 
@@ -444,9 +672,7 @@ void drawMorphingStandbyScreen(TFT_eSprite &target, int16_t speed, float volt, f
     target.setTextColor(COLOR_GLOW_CYAN, COLOR_BG);
     target.drawString("STANDBY ACTIVE", 6, 6, 2);
 
-    target.setTextDatum(TC_DATUM);
-    target.setTextColor(COLOR_AMBER, COLOR_BG);
-    target.drawString("MORPHING COMPANION", target.width() / 2, 6, 2);
+    // Header title placed cleanly on left with zero overlap
 
     drawBatteryIcon(target, isBatConnected, isCharging, batPct);
 
@@ -469,7 +695,7 @@ void drawMorphingStandbyScreen(TFT_eSprite &target, int16_t speed, float volt, f
     target.drawRoundRect(bay1X, bayY, bayW, bayH, 6, COLOR_DIVIDER);
     target.setTextDatum(TC_DATUM);
     target.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
-    target.drawString("ROBOT AVATAR", cx1, bayY + 3, 1);
+    target.drawString("MEDICAL AVATAR", cx1, bayY + 3, 1);
     target.drawFastHLine(bay1X + 4, bayY + 13, bayW - 8, COLOR_DIVIDER);
 
     target.fillRoundRect(bay2X, bayY, bayW, bayH, 6, COLOR_CARD);
@@ -577,7 +803,7 @@ void drawMorphingStandbyScreen(TFT_eSprite &target, int16_t speed, float volt, f
 
     target.setTextDatum(BC_DATUM);
     target.setTextColor(COLOR_EMERALD, COLOR_CARD);
-    target.drawString("AI COMPANION", cx1, bayY + bayH - 4, 1);
+    target.drawString("CLINICAL AVATAR", cx1, bayY + bayH - 4, 1);
 
     target.setTextColor(COLOR_AMBER, COLOR_CARD);
     target.drawString("PRECISION PEN", cx2, bayY + bayH - 4, 1);
@@ -690,7 +916,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
 
             String text = labels[i];
             if (i == 0) {
-                int percentSpeed = round((float)webBaseSpeed * 100.0f / 255.0f);
+                int percentSpeed = webBaseSpeed;
                 text += String(percentSpeed) + "%";
             }
             else if (i == 1) {
@@ -710,7 +936,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         }
 
         // Animated Robot Companion on the RIGHT side! (Looking LEFT at the centered choices!)
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 84, "ASSIST", "● READY", COLOR_EMERALD, false);
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 84, "ASSIST", "CONFIG ⚙", "● READY", COLOR_EMERALD, MORPH_GEAR);
 
         spr.pushSprite(0, 0);
         return;
@@ -755,11 +981,13 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
     };
     spr.drawString(screenTitles[screen], 6, 6, 2);
 
-    // 2. LED Status Indicator in center
+    // 2. LED Status Indicator in center (compact, non-overlapping Font 1)
     if (ledBrightness > 0) {
         uint8_t ledPct = round((float)ledBrightness * 100.0f / 255.0f);
+        spr.setTextDatum(MC_DATUM);
         spr.setTextColor(COLOR_AMBER, COLOR_BG);
-        spr.drawString("LED:" + String(ledPct) + "%", 112, 6, 2);
+        spr.drawString("L:" + String(ledPct) + "%", 120, 14, 1);
+        spr.setTextDatum(TL_DATUM);
     }
 
     // 3. Animated Robot Companion: placed at x = spr.width() - 100 (width: 30)
@@ -813,7 +1041,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         spr.drawString("SURGICAL DRIVE", cx1, cardY + 2, 2);
         spr.drawFastHLine(card1X + 4, cardY + 17, cardW - 8, COLOR_DIVIDER);
 
-        int percentSpeed = round((float)abs(speed) * 100.0f / 255.0f);
+        int percentSpeed = abs(speed);
 
         // Split-Column Centered Data Rows with Font 2
         spr.setTextDatum(TR_DATUM);
@@ -849,78 +1077,141 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         spr.fillRoundRect(card2X, cardY, cardW, cardH, 6, COLOR_CARD);
         spr.drawRoundRect(card2X, cardY, cardW, cardH, 6, COLOR_DIVIDER);
 
-        // Header Direction Title Centered
-        spr.setTextDatum(TC_DATUM);
-        if (speed > 0) {
-            spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
-            spr.drawString("MOTOR CW ↻", cx2, cardY + 2, 2);
-        } else if (speed < 0) {
-            spr.setTextColor(COLOR_CORAL, COLOR_CARD);
-            spr.drawString("MOTOR CCW ↺", cx2, cardY + 2, 2);
+        // Morphing Robot Avatar <-> Motor Turbine Engine
+        uint32_t s0Time = millis() % 10000;
+        float s0Morph = 0.0f;
+        if (speed != 0) {
+            s0Morph = 1.0f; // Lock to live turbine when motor is running!
         } else {
-            spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
-            spr.drawString("MOTOR STANDBY", cx2, cardY + 2, 2);
+            if (s0Time < 3500) s0Morph = 0.0f;
+            else if (s0Time < 5000) {
+                float p = (s0Time - 3500) / 1500.0f;
+                s0Morph = sin(p * 1.5707963f);
+            } else if (s0Time < 8500) s0Morph = 1.0f;
+            else {
+                float p = (s0Time - 8500) / 1500.0f;
+                s0Morph = cos(p * 1.5707963f);
+            }
+        }
+
+        // Header Title Centered
+        spr.setTextDatum(TC_DATUM);
+        if (s0Morph < 0.5f) {
+            spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+            spr.drawString("DRIVE BUDDY", cx2, cardY + 2, 2);
+        } else {
+            if (speed > 0) {
+                spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+                spr.drawString("MOTOR CW ↻", cx2, cardY + 2, 2);
+            } else if (speed < 0) {
+                spr.setTextColor(COLOR_CORAL, COLOR_CARD);
+                spr.drawString("MOTOR CCW ↺", cx2, cardY + 2, 2);
+            } else {
+                spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+                spr.drawString("MOTOR STANDBY", cx2, cardY + 2, 2);
+            }
         }
         spr.drawFastHLine(card2X + 4, cardY + 17, cardW - 8, COLOR_DIVIDER);
         spr.setTextDatum(TL_DATUM);
 
-        // Modern 2026 3-Blade Aerodynamic Surgical Motor Turbine
         int cy = cardY + 49;
-        int r = 24;
 
-        // Outer Calibration Dial with 8 radial precision tick marks
-        spr.drawCircle(cx2, cy, r + 4, COLOR_DIVIDER);
-        for (int a = 0; a < 360; a += 45) {
-            float rad = a * DEG_TO_RAD;
-            int x1 = cx2 + (int)((r + 2) * cos(rad));
-            int y1 = cy + (int)((r + 2) * sin(rad));
-            int x2 = cx2 + (int)((r + 4) * cos(rad));
-            int y2 = cy + (int)((r + 4) * sin(rad));
-            spr.drawLine(x1, y1, x2, y2, (a % 90 == 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER);
-        }
+        if (s0Morph < 0.45f) {
+            // --- ROBOT AVATAR FACE MODE (Eyes looking LEFT at Surgical Drive!) ---
+            int vw = 44;
+            int vh = 30;
+            spr.fillRoundRect(cx2 - vw / 2, cy - vh / 2, vw, vh, 6, COLOR_BG);
+            spr.drawRoundRect(cx2 - vw / 2, cy - vh / 2, vw, vh, 6, COLOR_GLOW_CYAN);
 
-        // Inner Motor Track
-        spr.drawCircle(cx2, cy, r, (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_DIVIDER);
+            // Ear nodes
+            spr.fillRoundRect(cx2 - vw / 2 - 4, cy - 6, 4, 12, 2, COLOR_GLOW_BLUE);
+            spr.fillRoundRect(cx2 + vw / 2, cy - 6, 4, 12, 2, COLOR_GLOW_BLUE);
 
-        // Dynamic 3-Blade Aerodynamic Motor with Trailing Orbital Energy Glow
-        static float currentAngle = 0;
-        if (speed != 0) {
-            currentAngle += (speed / 255.0f) * 16.0f;
+            uint32_t bt = millis() % 3600;
+            bool isBlink = (bt < 150);
+
+            int lx = cx2 - 9;
+            int rx = cx2 + 9;
+            int ey = cy - 2;
+
+            if (isBlink) {
+                spr.drawFastHLine(lx - 4, ey, 9, COLOR_GLOW_CYAN);
+                spr.drawFastHLine(rx - 4, ey, 9, COLOR_GLOW_CYAN);
+            } else {
+                spr.fillCircle(lx, ey, 4, COLOR_GLOW_CYAN);
+                spr.fillCircle(rx, ey, 4, COLOR_GLOW_CYAN);
+                // Gaze pupil looking LEFT at the telemetry card
+                spr.fillCircle(lx - 2, ey, 2, COLOR_BG);
+                spr.fillCircle(rx - 2, ey, 2, COLOR_BG);
+                spr.drawPixel(lx - 1, ey - 1, COLOR_TXT_WHITE);
+                spr.drawPixel(rx - 1, ey - 1, COLOR_TXT_WHITE);
+            }
+
+            // Blushing pink cheeks
+            spr.drawPixel(cx2 - 14, cy + 6, COLOR_PINK);
+            spr.drawPixel(cx2 + 14, cy + 6, COLOR_PINK);
+
+            // Smiling mouth
+            spr.drawFastHLine(cx2 - 4, cy + 8, 9, COLOR_AMBER);
+            spr.drawPixel(cx2 - 5, cy + 7, COLOR_AMBER);
+            spr.drawPixel(cx2 + 5, cy + 7, COLOR_AMBER);
+
+        } else {
+            // --- MOTOR TURBINE MODE ---
+            int r = 24;
+
+            // Outer Calibration Dial with 8 radial precision tick marks
+            spr.drawCircle(cx2, cy, r + 4, COLOR_DIVIDER);
+            for (int a = 0; a < 360; a += 45) {
+                float rad = a * DEG_TO_RAD;
+                int x1 = cx2 + (int)((r + 2) * cos(rad));
+                int y1 = cy + (int)((r + 2) * sin(rad));
+                int x2 = cx2 + (int)((r + 4) * cos(rad));
+                int y2 = cy + (int)((r + 4) * sin(rad));
+                spr.drawLine(x1, y1, x2, y2, (a % 90 == 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER);
+            }
+
+            spr.drawCircle(cx2, cy, r, (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_DIVIDER);
+
+            static float currentAngle = 0;
+            if (speed != 0) {
+                currentAngle += (speed / 100.0f) * 16.0f;
+            } else {
+                currentAngle += 3.0f; // Smooth idle rotation
+            }
             if (currentAngle >= 360.0f) currentAngle -= 360.0f;
             if (currentAngle < 0.0f) currentAngle += 360.0f;
-        }
 
-        for (int i = 0; i < 3; i++) {
-            float aTip = (currentAngle + (i * 120)) * DEG_TO_RAD;
-            float aTail = (currentAngle + (i * 120) - (speed >= 0 ? 30 : -30)) * DEG_TO_RAD;
+            for (int i = 0; i < 3; i++) {
+                float aTip = (currentAngle + (i * 120)) * DEG_TO_RAD;
+                float aTail = (currentAngle + (i * 120) - (speed >= 0 ? 30 : -30)) * DEG_TO_RAD;
 
-            int xt = cx2 + (int)((r - 1) * cos(aTip));
-            int yt = cy + (int)((r - 1) * sin(aTip));
-            int xm = cx2 + (int)((r - 8) * cos(aTail));
-            int ym = cy + (int)((r - 8) * sin(aTail));
-            int xr = cx2 + (int)(7 * cos(aTip - 0.2));
-            int yr = cy + (int)(7 * sin(aTip - 0.2));
+                int xt = cx2 + (int)((r - 1) * cos(aTip));
+                int yt = cy + (int)((r - 1) * sin(aTip));
+                int xm = cx2 + (int)((r - 8) * cos(aTail));
+                int ym = cy + (int)((r - 8) * sin(aTail));
+                int xr = cx2 + (int)(7 * cos(aTip - 0.2));
+                int yr = cy + (int)(7 * sin(aTip - 0.2));
 
-            uint16_t bCol = (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_TXT_MUTED;
-            uint16_t sCol = (speed != 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER;
+                uint16_t bCol = (speed != 0) ? (speed > 0 ? COLOR_EMERALD : COLOR_CORAL) : COLOR_TXT_MUTED;
+                uint16_t sCol = (speed != 0) ? COLOR_GLOW_CYAN : COLOR_DIVIDER;
 
-            spr.drawLine(xt, yt, xm, ym, bCol);
-            spr.drawLine(xm, ym, xr, yr, sCol);
-            spr.drawLine(xt, yt, xr, yr, bCol);
+                spr.drawLine(xt, yt, xm, ym, bCol);
+                spr.drawLine(xm, ym, xr, yr, sCol);
+                spr.drawLine(xt, yt, xr, yr, bCol);
 
-            // Trailing orbital energy glow particle along outer perimeter
-            if (speed != 0) {
-                float aTrail = (currentAngle + (i * 120) - (speed >= 0 ? 50 : -50)) * DEG_TO_RAD;
-                int xp = cx2 + (int)((r - 1) * cos(aTrail));
-                int yp = cy + (int)((r - 1) * sin(aTrail));
-                spr.drawPixel(xp, yp, COLOR_GLOW_CYAN);
+                if (speed != 0) {
+                    float aTrail = (currentAngle + (i * 120) - (speed >= 0 ? 50 : -50)) * DEG_TO_RAD;
+                    int xp = cx2 + (int)((r - 1) * cos(aTrail));
+                    int yp = cy + (int)((r - 1) * sin(aTrail));
+                    spr.drawPixel(xp, yp, COLOR_GLOW_CYAN);
+                }
             }
-        }
 
-        // Center Surgical Collet Hub
-        spr.fillCircle(cx2, cy, 7, COLOR_CARD);
-        spr.drawCircle(cx2, cy, 7, COLOR_GLOW_BLUE);
-        spr.fillCircle(cx2, cy, 3, (speed != 0) ? (speed > 0 ? COLOR_GLOW_CYAN : COLOR_AMBER) : COLOR_TXT_MUTED);
+            spr.fillCircle(cx2, cy, 7, COLOR_CARD);
+            spr.drawCircle(cx2, cy, 7, COLOR_GLOW_BLUE);
+            spr.fillCircle(cx2, cy, 3, (speed != 0) ? (speed > 0 ? COLOR_GLOW_CYAN : COLOR_AMBER) : COLOR_TXT_MUTED);
+        }
 
         // ---------------------------------------------------------------------
         // 3. FOOTER ZONE (SYMMETRICALLY BALANCED)
@@ -965,30 +1256,32 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         spr.drawString("ENERGY STATS", cardCX, 33, 2);
         spr.drawFastHLine(10, 48, cardW - 12, COLOR_DIVIDER);
 
-        // Split-Column Centered Data Rows with Increased Font 2 Sizes!
+        // Split-Column Centered Data Rows with Font 2
         spr.setTextDatum(TR_DATUM);
         spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
-        spr.drawString("Voltage:", cardCX - 4, 52, 2);
-        spr.drawString("Percent:", cardCX - 4, 68, 2);
-        spr.drawString("Current:", cardCX - 4, 84, 2);
+        spr.drawString("TTGO ADC:", cardCX - 4, 51, 2);
+        spr.drawString("INA Volt:", cardCX - 4, 66, 2);
+        spr.drawString("INA Curr:", cardCX - 4, 81, 2);
 
         spr.setTextDatum(TL_DATUM);
         spr.setTextColor(COLOR_AMBER, COLOR_CARD);
-        spr.drawString(String(volt, 2) + " V", cardCX + 4, 52, 2);
-        spr.drawString(String(batPct) + " %", cardCX + 4, 68, 2);
+        spr.drawString(String(internalVoltage, 2) + " V", cardCX + 4, 51, 2);
+
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString(String(volt, 2) + " V", cardCX + 4, 66, 2);
 
         spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
-        spr.drawString(String(amp, 3) + " A", cardCX + 4, 84, 2);
+        spr.drawString(String(amp, 3) + " A", cardCX + 4, 81, 2);
 
         spr.setTextDatum(MC_DATUM);
-        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
-        spr.drawString("Power Output: " + String(pwr, 1) + " W", cardCX, 102, 1);
+        spr.setTextColor(COLOR_TXT_WHITE, COLOR_CARD);
+        spr.drawString("Pwr: " + String(pwr, 1) + "W (" + String(batPct) + "%)", cardCX, 100, 1);
         spr.setTextDatum(TL_DATUM);
 
         // Right Robot Companion Pod ("POWER BUDDY" looking LEFT at the energy readings!)
         const char* pBadge = isCharging ? "⚡ CHG" : (batPct < 20 ? "LOW BAT" : "BAT OK");
         uint16_t bColor = isCharging ? COLOR_EMERALD : (batPct < 20 ? COLOR_CORAL : COLOR_EMERALD);
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "POWER", pBadge, bColor, (batPct < 20));
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 82, "POWER", "⚡ VOLT", pBadge, bColor, MORPH_LIGHTNING);
 
         // Lower Status Banner
         spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
@@ -1044,7 +1337,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
 
         // Right Robot Companion Pod ("NET BUDDY" looking LEFT at IP & URL!)
         const char* nBadge = (WiFi.status() == WL_CONNECTED) ? "ONLINE" : "AP READY";
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "NETWORK", nBadge, COLOR_EMERALD, false);
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 82, "NETWORK", "WIFI 📶", nBadge, COLOR_EMERALD, MORPH_WIFI);
 
         // Lower Status Banner
         spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
@@ -1095,7 +1388,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
 
         // Right Robot Companion Pod
         const char* oBadge = oscMode ? "BI-DIR" : "UNI-DIR";
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "CYCLE", oBadge, COLOR_GLOW_BLUE, false);
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 82, "CYCLE", "OSC ∿", oBadge, COLOR_GLOW_BLUE, MORPH_OSCILLATION);
 
         spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
         spr.setTextDatum(MC_DATUM);
@@ -1140,7 +1433,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         // Right Robot Companion Pod
         const char* dBadge = calibrationNeeded ? "CALIB" : "CAL OK";
         uint16_t cColor = calibrationNeeded ? COLOR_CORAL : COLOR_EMERALD;
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "SENSORS", dBadge, cColor, calibrationNeeded);
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 82, "SENSORS", "ECG 💓", dBadge, cColor, MORPH_DIAGNOSTICS);
 
         spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
         spr.setTextDatum(MC_DATUM);
@@ -1184,7 +1477,7 @@ void refreshOLED(int16_t speed, float volt, float amp, bool currentTrip, bool vo
         spr.setTextDatum(TL_DATUM);
 
         // Right Robot Companion Pod
-        drawRobotCompanionPod(spr, spr.width() - 58, 30, 54, 82, "RECORD", "LOGGED", COLOR_EMERALD, false);
+        drawUniversalMorphingPod(spr, spr.width() - 58, 30, 54, 82, "RECORD", "CLINIC ✚", "LOGGED", COLOR_EMERALD, MORPH_PATIENT);
 
         spr.drawFastHLine(0, 115, spr.width(), COLOR_GLOW_BLUE);
         spr.setTextDatum(MC_DATUM);
@@ -1212,6 +1505,75 @@ void displayWebConfirmation(String msg) {
 void displayGraftFlash(uint32_t count) {
     s_flashMessage = String(count);
     s_flashTimer = millis();
+}
+
+/**
+ * @brief Renders one frame of the report generation countdown on the TTGO TFT screen.
+ * @param secondsRemaining Number of seconds left (5, 4, 3, 2, 1, 0)
+ * @param totalSeconds Total duration in seconds (default 5)
+ */
+void drawReportCountdownFrame(int secondsRemaining, int totalSeconds) {
+    if (!s_oledInitialized) return;
+
+    spr.fillSprite(COLOR_BG);
+
+    // Glowing Sapphire Card with Double Neon Border
+    spr.fillRoundRect(8, 6, spr.width() - 16, spr.height() - 12, 8, COLOR_CARD);
+    spr.drawRoundRect(8, 6, spr.width() - 16, spr.height() - 12, 8, COLOR_GLOW_CYAN);
+    spr.drawRoundRect(9, 7, spr.width() - 18, spr.height() - 14, 7, COLOR_GLOW_BLUE);
+
+    // Header Tag
+    spr.setTextDatum(TC_DATUM);
+    spr.setTextFont(1);
+    spr.setTextSize(1);
+    spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+    spr.drawString("SYSTEM NOTIFICATION", spr.width() / 2, 12, 2);
+
+    // Subtitle Tag
+    spr.setTextColor(COLOR_GLOW_CYAN, COLOR_CARD);
+    spr.drawString("REPORT GENERATING", spr.width() / 2, 28, 2);
+
+    // Message
+    spr.setTextColor(COLOR_TXT_MAIN, COLOR_CARD);
+    spr.drawString("Please wait, generating...", spr.width() / 2, 46, 2);
+
+    // Countdown / Status Value
+    spr.setTextDatum(MC_DATUM);
+    spr.setFreeFont(FF23); // FreeSansBold18pt7b
+    if (secondsRemaining > 0) {
+        spr.setTextColor(COLOR_AMBER, COLOR_CARD);
+        spr.drawString(String(secondsRemaining) + "s", spr.width() / 2, 74);
+    } else {
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString("READY!", spr.width() / 2, 74);
+    }
+
+    // Progress Bar
+    int barW = spr.width() - 48;
+    int barH = 6;
+    int barX = 24;
+    int barY = spr.height() - 30;
+    spr.fillRoundRect(barX, barY, barW, barH, 3, COLOR_BG);
+    spr.drawRoundRect(barX, barY, barW, barH, 3, COLOR_DIVIDER);
+
+    int progress = map(totalSeconds - secondsRemaining, 0, totalSeconds, 0, barW);
+    if (progress > 2) {
+        spr.fillRoundRect(barX + 1, barY + 1, progress - 2, barH - 2, 2, COLOR_GLOW_CYAN);
+    }
+
+    // Bottom Status Pill
+    spr.setTextFont(1);
+    spr.setTextSize(1);
+    spr.setTextDatum(BC_DATUM);
+    if (secondsRemaining > 0) {
+        spr.setTextColor(COLOR_TXT_MUTED, COLOR_CARD);
+        spr.drawString("● SAVING TO STORAGE...", spr.width() / 2, spr.height() - 10, 1);
+    } else {
+        spr.setTextColor(COLOR_EMERALD, COLOR_CARD);
+        spr.drawString("● REPORT GENERATED", spr.width() / 2, spr.height() - 10, 1);
+    }
+
+    spr.pushSprite(0, 0);
 }
 
 #endif // DISPLAY_H

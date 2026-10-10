@@ -52,6 +52,7 @@ extern uint8_t ledBrightness;
 extern void setLEDBrightness(uint8_t brightness);
 extern void displayWebConfirmation(String msg); // Function to display confirmation on OLED
 extern String getFormattedDate(); // Function to get date from NTP
+extern void displayReportGeneratingCountdown(int totalSeconds);
 
 // WiFi Config Page HTML
 const char WIFI_HTML[] PROGMEM = R"=====(
@@ -207,10 +208,11 @@ const char READINGS_HTML[] PROGMEM = R"=====(
         <div class="card" style="flex-direction: column; padding: 18px 25px; gap: 8px;">
             <div style="font-weight: bold; font-size: 0.8em; color: #38bdf8; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; width:100%; text-align: left; margin-bottom: 10px;">Live Telemetry Plot</div>
             <canvas id="telemetryGraph" width="340" height="150" style="width: 100%; border-radius: 8px; background: #070b13; border: 1px solid rgba(255,255,255,0.05);"></canvas>
-            <div style="display: flex; justify-content: space-around; font-size: 0.7em; margin-top: 5px; width: 100%;">
-                <span style="color: #38bdf8; font-weight: bold;">● Volts (x30)</span>
+            <div style="display: flex; justify-content: space-around; font-size: 0.72em; margin-top: 6px; width: 100%; flex-wrap: wrap; gap: 4px;">
+                <span style="color: #38bdf8; font-weight: bold;">● INA Volt (x30)</span>
+                <span style="color: #c084fc; font-weight: bold;">● ADC Volt (x30)</span>
                 <span style="color: #facc15; font-weight: bold;">● Amps (x120)</span>
-                <span style="color: #10b981; font-weight: bold;">● RPM (x0.15)</span>
+                <span style="color: #10b981; font-weight: bold;">● RPM (x0.3)</span>
             </div>
         </div>
 
@@ -245,6 +247,7 @@ const char READINGS_HTML[] PROGMEM = R"=====(
         const ctx = canvas.getContext('2d');
         const maxPoints = 50;
         const vData = [];
+        const vIntData = [];
         const iData = [];
         const rpmData = [];
 
@@ -262,9 +265,10 @@ const char READINGS_HTML[] PROGMEM = R"=====(
             }
 
             // Render scaled data series
-            plotSeries(vData, '#38bdf8', 30);    // Scale Voltage (e.g. 4V -> 120px)
-            plotSeries(iData, '#facc15', 120);   // Scale Current (e.g. 0.5A -> 60px)
-            plotSeries(rpmData, '#10b981', 0.15); // Scale RPM (e.g. 800 RPM -> 120px)
+            plotSeries(vData, '#38bdf8', 30);     // INA219 Voltage (Cyan)
+            plotSeries(vIntData, '#c084fc', 30);  // TTGO Internal ADC Voltage (Purple)
+            plotSeries(iData, '#facc15', 120);    // Current (Yellow)
+            plotSeries(rpmData, '#10b981', 0.3);  // RPM (Green, scaled for 300-500 RPM)
         }
 
         function plotSeries(data, color, scale) {
@@ -316,6 +320,9 @@ const char READINGS_HTML[] PROGMEM = R"=====(
                 // Append and roll the telemetry arrays
                 vData.push(data.v);
                 if (vData.length > maxPoints) vData.shift();
+
+                vIntData.push(data.v_int);
+                if (vIntData.length > maxPoints) vIntData.shift();
 
                 iData.push(data.i);
                 if (iData.length > maxPoints) iData.shift();
@@ -1125,10 +1132,14 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
 
         function selectPatient() {
             let patientFile = document.getElementById('patientListSelect').value;
-            if (!patientFile) return;
-            fetch('/selectpatient?file=' + patientFile).then(() => {
+            if (!patientFile) {
+                alert("Please select a patient.");
+                return;
+            }
+            fetch('/selectpatient?file=' + encodeURIComponent(patientFile)).then(r => {
+                if (!r.ok) throw new Error("Server error: " + r.status);
                 window.location.href = '/';
-            });
+            }).catch(e => alert("Could not select patient: " + e));
         }
         function removePatient() {
             let list = document.getElementById('patientListRemove');
@@ -1139,9 +1150,18 @@ const char PATIENT_INFO_HTML[] PROGMEM = R"=====(
             let patientName = list.options[list.selectedIndex].text;
 
             if (confirm('Are you sure you want to remove ' + patientName + ' and all their associated reports? This cannot be undone.')) {
-                fetch('/removepatient?name=' + patientName).then(() => {
-                    window.location.reload();
-                });
+                fetch('/removepatient?name=' + encodeURIComponent(patientName) + '&file=' + encodeURIComponent(list.value))
+                    .then(r => {
+                        if (!r.ok) throw new Error("HTTP " + r.status);
+                        return r.text();
+                    })
+                    .then(() => {
+                        alert("Patient " + patientName + " removed successfully.");
+                        window.location.reload();
+                    })
+                    .catch(err => {
+                        alert("Failed to remove patient: " + err);
+                    });
             }
         }
     </script>
@@ -1182,56 +1202,288 @@ const char OPERATION_HTML[] PROGMEM = R"=====(
 <body>
     <div class="container">
         <div id="alarmBox" class="card alarm">SYSTEM HALTED: OVERLOAD</div>
+        <!-- Active Patient Card -->
+        <div id="patientCard" class="card" style="border: 1px solid rgba(56, 189, 248, 0.25);">
+            <div class="label">CURRENT PATIENT</div>
+            <div id="currentPatient" class="value" style="font-size: 1.25em; color: #38bdf8;">Loading...</div>
+        </div>
         <div class="card">
             <div class="label">OPERATION CONTROL</div>
             <div id="opControls" class="flex-row">
-                <button id="btnPause" class="btn" style="background: #f59e0b;" onclick="sendCmd('pause_op', '1')">PAUSE</button>
+                <button id="btnStart" class="btn btn-on" onclick="startOperation()">START OPERATION</button>
+                <button id="btnPause" class="btn" style="background: #f59e0b; display:none;" onclick="sendCmd('pause_op', '1')">PAUSE</button>
                 <button id="btnResume" class="btn btn-on" style="display:none;" onclick="sendCmd('resume_op', '1')">RESUME</button>
-                <button id="btnStop" class="btn btn-off" onclick="stopOperation()">STOP OPERATION</button>
+                <button id="btnStop" class="btn btn-off" style="display:none;" onclick="if(confirm('This will stop the operation. Proceed?')) stopOperation()">STOP OPERATION</button>
+                <button id="btnGenReport" class="btn" style="background: #059669; text-decoration: none;" onclick="generateAndSave()">GENERATE REPORT</button>
             </div>
         </div>
+
         <div class="card">
             <div class="flex-row">
                 <div><div class="label">GRAFT COUNTER</div><div id="penCount" class="value" style="font-size: 2.8em; color: #10b981;">0</div></div>
             </div>
             <button class="btn btn-off" style="width: 50%; font-size: 0.7em; padding: 8px; margin-top: 15px; opacity: 0.8;" onclick="sendCmd('resetCnt', '0')">RESET COUNTER</button>
         </div>
-        <div class="card">
-            <div class="flex-row">
-                <div><div class="label">SETPOINT</div><div id="speedVal" class="value">0%</div></div>
-                <div><div class="label">ACTUAL RPM</div><div id="rpm" class="value">0</div></div>
-            </div>
-            <input type="range" min="0" max="100" value="78" class="slider" id="speedSlider" oninput="updateSpeed(this.value)">
-            <button class="btn btn-on" onclick="sendCmd('power', 'on')">ON</button>
-            <button class="btn btn-off" onclick="sendCmd('power', 'off')">OFF</button>
-            <button class="btn btn-dir" onclick="sendCmd('dir', 'toggle')">REVERSE</button>
+
+        <!-- Motor Operating Mode Selection -->
+        <div class="card" style="padding: 15px 20px;">
+            <div class="label">MOTOR OPERATING MODE</div>
+            <select id="motorModeSelect" style="width: 100%; background: #0f172a; color: #38bdf8; font-size: 1em; font-weight: 700; padding: 12px 14px; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; margin-top: 6px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2);" onchange="changeMotorMode(this.value)">
+                <option value="normal">NORMAL CONTINUOUS DRIVE</option>
+                <option value="osc">OSCILLATING BI-DIRECTIONAL MODE</option>
+            </select>
         </div>
-        <div class="card">
-            <div class="label">OPERATING MODE</div>
+
+        <!-- Normal Continuous Drive Mode Card -->
+        <div id="normalMotorCard" class="card">
+            <div class="label">MOTOR DRIVE & SPEED (0 - 100%)</div>
             <div class="flex-row">
-                <button id="modeNormal" class="btn" style="background: #475569;" onclick="sendCmd('mode', 'normal')">NORMAL</button>
-                <button id="modeOsc" class="btn" style="background: #475569;" onclick="sendCmd('mode', 'osc')">OSCILLATE</button>
+                <div><div class="label">SET SPEED</div><div id="speedVal" class="value">80%</div></div>
+                <div><div class="label">ACTUAL RPM</div><div id="rpm" class="value" style="color: #10b981;">0</div></div>
+            </div>
+            <input type="range" min="0" max="100" value="80" class="slider" id="speedSlider" oninput="updateSpeed(this.value)" style="margin: 15px 0;">
+            <div class="flex-row">
+                <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendCmd('power', 'on')">ON</button>
+                <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendCmd('power', 'off')">OFF</button>
+                <button class="btn btn-dir" style="flex:1; padding: 10px;" onclick="sendCmd('dir', 'toggle')">REVERSE</button>
             </div>
         </div>
+
+        <!-- Oscillating Bi-Directional Mode Card -->
+        <div id="oscMotorCard" class="card" style="display: none;">
+            <div class="label">OSCILLATING MOTOR CONTROL (0 - 100%)</div>
+            <div class="flex-row">
+                <div><div class="label">SET SPEED</div><div id="speedValOsc" class="value">80%</div></div>
+                <div><div class="label">ACTUAL RPM</div><div id="rpmOsc" class="value" style="color: #10b981;">0</div></div>
+            </div>
+            <input type="range" min="0" max="100" value="80" class="slider" id="speedSliderOsc" oninput="updateSpeed(this.value)" style="margin: 15px 0;">
+            
+            <div class="flex-row" style="margin: 12px 0; gap: 10px;">
+                <div style="flex:1; background: rgba(15,23,42,0.6); padding: 10px 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
+                    <div class="label" style="font-size:0.7em;">CW DURATION</div>
+                    <div class="flex-row" style="margin-top: 6px;">
+                        <button class="btn" style="padding: 6px 12px; font-size: 15px; background: #334155; width: auto; margin:0;" onclick="adjustOsc('cw', -100)">▼</button>
+                        <span id="cwVal" class="value" style="font-size: 1.1em; min-width: 65px;">1200ms</span>
+                        <button class="btn" style="padding: 6px 12px; font-size: 15px; background: #334155; width: auto; margin:0;" onclick="adjustOsc('cw', 100)">▲</button>
+                    </div>
+                </div>
+                <div style="flex:1; background: rgba(15,23,42,0.6); padding: 10px 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
+                    <div class="label" style="font-size:0.7em;">CCW DURATION</div>
+                    <div class="flex-row" style="margin-top: 6px;">
+                        <button class="btn" style="padding: 6px 12px; font-size: 15px; background: #334155; width: auto; margin:0;" onclick="adjustOsc('ccw', -100)">▼</button>
+                        <span id="ccwVal" class="value" style="font-size: 1.1em; min-width: 65px;">800ms</span>
+                        <button class="btn" style="padding: 6px 12px; font-size: 15px; background: #334155; width: auto; margin:0;" onclick="adjustOsc('ccw', 100)">▲</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-row">
+                <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendCmd('power', 'on')">ON</button>
+                <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendCmd('power', 'off')">OFF</button>
+            </div>
+        </div>
+
         <div class="card">
-            <div class="label">SURGICAL ILLUMINATION (PIN 17)</div>
+            <div class="label">SURGICAL HEADLIGHT / LED (PIN 17)</div>
             <div class="flex-row" style="margin-bottom: 8px;">
                 <div><div class="label">BRIGHTNESS</div><div id="ledVal" class="value">0%</div></div>
                 <div><div class="label">STATUS</div><div id="ledStatus" class="value" style="color: #94a3b8;">OFF</div></div>
             </div>
-            <input type="range" min="0" max="100" value="0" class="slider" id="ledSlider" oninput="updateLed(this.value)">
+            <input type="range" min="0" max="100" value="0" class="slider" id="ledSlider" oninput="updateLed(this.value)" style="margin: 15px 0;">
             <div class="flex-row">
                 <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendLedPower('on')">ON</button>
                 <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendLedPower('off')">OFF</button>
-                <button class="btn" style="flex:1; padding: 10px; background: #f59e0b;" onclick="updateLed(50)">50%</button>
-                <button class="btn" style="flex:1; padding: 10px; background: #0ea5e9;" onclick="updateLed(100)">100%</button>
+            </div>
+        </div>
+        <a href="/" class="link-footer" style="margin-top: 20px; font-weight: 600;">&larr; BACK TO DASHBOARD</a>
+    </div>
+
+    <!-- Report Generation Countdown Modal -->
+    <div id="reportModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.85); backdrop-filter:blur(8px); z-index:9999; align-items:center; justify-content:center; flex-direction:column; padding:20px; box-sizing:border-box;">
+        <div class="card" style="max-width:360px; width:100%; padding:25px; border:1px solid rgba(56,189,248,0.3); box-shadow:0 0 35px rgba(56,189,248,0.25); text-align:center;">
+            <svg id="modalSpinner" class="logo-svg" style="width:48px; height:48px; fill:#38bdf8; animation:spin 2s linear infinite; margin:0 auto 15px auto; display:block;" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+            <div style="font-size:1.15em; font-weight:700; color:#38bdf8; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:8px;">REPORT GENERATION</div>
+            <div id="modalStatusMsg" style="font-size:0.92em; color:#cbd5e1; margin-bottom:12px; line-height:1.4;">Please wait, Report is generating...</div>
+            <div id="modalCountdown" style="font-size:2.6em; font-weight:800; color:#facc15; font-family:'Courier New', monospace; margin:8px 0; text-shadow:0 0 10px rgba(250,204,21,0.3);">5s</div>
+            <div style="width:100%; background:#1e293b; height:8px; border-radius:4px; overflow:hidden; margin:14px 0; border:1px solid rgba(255,255,255,0.08);">
+                <div id="modalProgressBar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #10b981); transition:width 1s linear;"></div>
+            </div>
+            <div id="modalSubMsg" style="font-size:0.75em; color:#94a3b8; letter-spacing:0.5px;">Saving procedure metrics to SPIFFS storage...</div>
+            <div id="modalActionArea" style="margin-top:18px; display:none;">
+                <a id="modalOpenReportLink" href="#" target="_blank" class="btn btn-on" style="display:inline-block; text-decoration:none; padding:10px 18px; font-size:12px;">OPEN REPORT</a>
+                <button class="btn btn-off" style="padding:10px 18px; font-size:12px;" onclick="closeReportModal()">CLOSE</button>
             </div>
         </div>
     </div>
+
     <script>
+        let reportCountdownTimer = null;
+        let isGeneratingReport = false;
+
+        function closeReportModal() {
+            if (reportCountdownTimer) clearInterval(reportCountdownTimer);
+            let modal = document.getElementById('reportModal');
+            if (modal) modal.style.display = 'none';
+            let btnGen = document.getElementById('btnGenReport');
+            if (btnGen) {
+                btnGen.disabled = false;
+                btnGen.style.opacity = '1';
+                btnGen.innerText = 'GENERATE REPORT';
+            }
+            isGeneratingReport = false;
+        }
+
+        function generateAndSave() {
+            if (isGeneratingReport) return;
+            isGeneratingReport = true;
+
+            let btnGen = document.getElementById('btnGenReport');
+            if (btnGen) {
+                btnGen.disabled = true;
+                btnGen.style.opacity = '0.6';
+                btnGen.innerText = 'GENERATING...';
+            }
+
+            let modal = document.getElementById('reportModal');
+            let statusMsg = document.getElementById('modalStatusMsg');
+            let countdownEl = document.getElementById('modalCountdown');
+            let progressBar = document.getElementById('modalProgressBar');
+            let subMsg = document.getElementById('modalSubMsg');
+            let actionArea = document.getElementById('modalActionArea');
+            let openLink = document.getElementById('modalOpenReportLink');
+            let spinner = document.getElementById('modalSpinner');
+
+            if (modal) {
+                modal.style.display = 'flex';
+                statusMsg.innerText = 'Please wait, Report is generating...';
+                statusMsg.style.color = '#cbd5e1';
+                countdownEl.innerText = '5s';
+                countdownEl.style.color = '#facc15';
+                progressBar.style.width = '0%';
+                subMsg.innerText = 'Saving procedure metrics to SPIFFS storage...';
+                if (actionArea) actionArea.style.display = 'none';
+                if (spinner) {
+                    spinner.style.display = 'block';
+                    spinner.style.animation = 'spin 2s linear infinite';
+                }
+            }
+
+            let totalSeconds = 5;
+            let secondsLeft = totalSeconds;
+            if (reportCountdownTimer) clearInterval(reportCountdownTimer);
+
+            reportCountdownTimer = setInterval(() => {
+                secondsLeft--;
+                if (secondsLeft > 0) {
+                    if (countdownEl) countdownEl.innerText = secondsLeft + 's';
+                    if (progressBar) progressBar.style.width = Math.round(((totalSeconds - secondsLeft) / totalSeconds) * 100) + '%';
+                } else {
+                    if (countdownEl) countdownEl.innerText = '...';
+                    if (progressBar) progressBar.style.width = '95%';
+                    if (statusMsg) statusMsg.innerText = 'Finalizing report formatting...';
+                    if (subMsg) subMsg.innerText = 'Almost ready...';
+                }
+            }, 1000);
+
+            fetch('/control?cmd=saveReport&val=1')
+                .then(r => {
+                    if (!r.ok) throw new Error('Server returned ' + r.status);
+                    return r.text();
+                })
+                .then(filename => {
+                    if (reportCountdownTimer) clearInterval(reportCountdownTimer);
+                    console.log('Report saved as:', filename);
+                    let reportUrl = '/viewreport?file=' + encodeURIComponent(filename);
+
+                    if (countdownEl) {
+                        countdownEl.innerText = 'DONE';
+                        countdownEl.style.color = '#10b981';
+                    }
+                    if (progressBar) progressBar.style.width = '100%';
+                    if (statusMsg) {
+                        statusMsg.innerText = 'Report Generated Successfully!';
+                        statusMsg.style.color = '#10b981';
+                    }
+                    if (subMsg) subMsg.innerText = 'Opening report in browser...';
+                    if (spinner) spinner.style.animation = 'none';
+
+                    if (openLink) openLink.href = reportUrl;
+                    if (actionArea) actionArea.style.display = 'block';
+
+                    let win = window.open(reportUrl, '_blank');
+                    if (!win || win.closed || typeof win.closed == 'undefined') {
+                        if (subMsg) subMsg.innerText = 'Popup blocked? Click button below to view:';
+                    } else {
+                        setTimeout(() => {
+                            closeReportModal();
+                        }, 1800);
+                    }
+                })
+                .catch(err => {
+                    if (reportCountdownTimer) clearInterval(reportCountdownTimer);
+                    console.error('Report error:', err);
+                    if (countdownEl) {
+                        countdownEl.innerText = 'ERR';
+                        countdownEl.style.color = '#ef4444';
+                    }
+                    if (statusMsg) {
+                        statusMsg.innerText = 'Generation Failed';
+                        statusMsg.style.color = '#ef4444';
+                    }
+                    if (subMsg) subMsg.innerText = 'Could not generate report. Please try again.';
+                    if (spinner) spinner.style.display = 'none';
+                    if (openLink) openLink.style.display = 'none';
+                    if (actionArea) actionArea.style.display = 'block';
+                    isGeneratingReport = false;
+                    let b = document.getElementById('btnGenReport');
+                    if (b) {
+                        b.disabled = false;
+                        b.style.opacity = '1';
+                        b.innerText = 'GENERATE REPORT';
+                    }
+                });
+        }
+
+        let currentCwMs = 1200;
+        let currentCcwMs = 800;
+
+        function changeMotorMode(mode) {
+            sendCmd('mode', mode);
+            let normalCard = document.getElementById('normalMotorCard');
+            let oscCard = document.getElementById('oscMotorCard');
+            if (mode === 'osc') {
+                if (normalCard) normalCard.style.display = 'none';
+                if (oscCard) oscCard.style.display = 'block';
+            } else {
+                if (normalCard) normalCard.style.display = 'block';
+                if (oscCard) oscCard.style.display = 'none';
+            }
+        }
+
+        function adjustOsc(dir, delta) {
+            if (dir === 'cw') {
+                currentCwMs = Math.max(500, Math.min(10000, currentCwMs + delta));
+                let el = document.getElementById('cwVal');
+                if (el) el.innerText = currentCwMs + 'ms';
+                sendCmd('oscDurCw', currentCwMs);
+            } else {
+                currentCcwMs = Math.max(500, Math.min(10000, currentCcwMs + delta));
+                let el = document.getElementById('ccwVal');
+                if (el) el.innerText = currentCcwMs + 'ms';
+                sendCmd('oscDurCcw', currentCcwMs);
+            }
+        }
+
         function updateSpeed(val) { 
-            let pwmVal = Math.round(val * 255 / 100);
-            document.getElementById('speedVal').innerText = val + '%'; 
+            let pwmVal = val;
+            let spdValEl = document.getElementById('speedVal');
+            let spdValOscEl = document.getElementById('speedValOsc');
+            let spdSlider = document.getElementById('speedSlider');
+            let spdSliderOsc = document.getElementById('speedSliderOsc');
+            if (spdValEl) spdValEl.innerText = val + '%'; 
+            if (spdValOscEl) spdValOscEl.innerText = val + '%'; 
+            if (spdSlider && spdSlider.value != val) spdSlider.value = val;
+            if (spdSliderOsc && spdSliderOsc.value != val) spdSliderOsc.value = val;
             sendCmd('speed', pwmVal); 
         }
         function updateLed(val) {
@@ -1251,14 +1503,163 @@ const char OPERATION_HTML[] PROGMEM = R"=====(
             updateLed(state === 'on' ? 100 : 0);
         }
         function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
+        function startOperation() {
+            sendCmd('start_op', '1');
+            let btnStart = document.getElementById('btnStart');
+            let btnPause = document.getElementById('btnPause');
+            let btnResume = document.getElementById('btnResume');
+            let btnStop = document.getElementById('btnStop');
+            let btnGen = document.getElementById('btnGenReport');
+
+            if (btnStart) btnStart.style.display = 'none';
+            if (btnStop) {
+                btnStop.style.display = 'inline-block';
+                btnStop.innerText = 'STOP OPERATION';
+            }
+            if (btnPause) btnPause.style.display = 'inline-block';
+            if (btnResume) btnResume.style.display = 'none';
+            if (btnGen) btnGen.style.display = 'none';
+        }
+
         function stopOperation() {
             if(confirm('This will stop the operation. Proceed?')) {
                 sendCmd('stop_op', '1');
-                setTimeout(() => { window.location.href = '/'; }, 500); // Redirect back to main dashboard
+                let btnStart = document.getElementById('btnStart');
+                let btnPause = document.getElementById('btnPause');
+                let btnResume = document.getElementById('btnResume');
+                let btnStop = document.getElementById('btnStop');
+                let btnGen = document.getElementById('btnGenReport');
+                if (btnStart) btnStart.style.display = 'inline-block';
+                if (btnStop) btnStop.style.display = 'none';
+                if (btnPause) btnPause.style.display = 'none';
+                if (btnResume) btnResume.style.display = 'none';
+                if (btnGen) btnGen.style.display = 'inline-block';
             }
         }
-        // The rest of the script (telemetry polling) will be added by the compiler from the main page script.
-        // This is just a placeholder for the logic. The full script from INDEX_HTML will be used.
+
+        setInterval(() => {
+            fetch('/telemetry').then(r => r.json()).then(data => {
+                let curP = document.getElementById('currentPatient');
+                if (curP) {
+                    if (data.pName && data.pName !== 'N/A' && data.pName.trim() !== '') {
+                        curP.innerText = data.pName + (data.pAge && data.pAge !== 'N/A' ? ' (' + data.pAge + 'y)' : '');
+                        curP.style.color = '#38bdf8';
+                    } else {
+                        curP.innerText = 'No Patient Selected';
+                        curP.style.color = '#94a3b8';
+                    }
+                }
+
+                let penCountEl = document.getElementById('penCount');
+                if (penCountEl) penCountEl.innerText = data.cnt;
+
+                let rpmEl = document.getElementById('rpm');
+                if (rpmEl) rpmEl.innerText = data.rpm;
+
+                let rpmOscEl = document.getElementById('rpmOsc');
+                if (rpmOscEl) rpmOscEl.innerText = data.rpm;
+
+                // Sync Motor Mode selector & visible card
+                let modeSel = document.getElementById('motorModeSelect');
+                if (modeSel && document.activeElement !== modeSel) {
+                    let isOsc = (data.oscMode === 1);
+                    modeSel.value = isOsc ? 'osc' : 'normal';
+                    let normalCard = document.getElementById('normalMotorCard');
+                    let oscCard = document.getElementById('oscMotorCard');
+                    if (isOsc) {
+                        if (normalCard) normalCard.style.display = 'none';
+                        if (oscCard) oscCard.style.display = 'block';
+                    } else {
+                        if (normalCard) normalCard.style.display = 'block';
+                        if (oscCard) oscCard.style.display = 'none';
+                    }
+                }
+
+                // Sync CW and CCW durations
+                if (data.oscDurCw && data.oscDurCw >= 500) {
+                    currentCwMs = data.oscDurCw;
+                    let el = document.getElementById('cwVal');
+                    if (el) el.innerText = currentCwMs + 'ms';
+                }
+                if (data.oscDurCcw && data.oscDurCcw >= 500) {
+                    currentCcwMs = data.oscDurCcw;
+                    let el = document.getElementById('ccwVal');
+                    if (el) el.innerText = currentCcwMs + 'ms';
+                }
+
+                let spdSlider = document.getElementById('speedSlider');
+                if (spdSlider && document.activeElement !== spdSlider) {
+                    spdSlider.value = data.set;
+                    let spdValEl = document.getElementById('speedVal');
+                    if (spdValEl) spdValEl.innerText = data.set + '%';
+                }
+
+                let spdSliderOsc = document.getElementById('speedSliderOsc');
+                if (spdSliderOsc && document.activeElement !== spdSliderOsc) {
+                    spdSliderOsc.value = data.set;
+                    let spdValOscEl = document.getElementById('speedValOsc');
+                    if (spdValOscEl) spdValOscEl.innerText = data.set + '%';
+                }
+
+                let ledSlider = document.getElementById('ledSlider');
+                if (ledSlider && document.activeElement !== ledSlider) {
+                    let ledPct = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
+                    ledSlider.value = ledPct;
+                    let ledValEl = document.getElementById('ledVal');
+                    if (ledValEl) ledValEl.innerText = ledPct + '%';
+                    let st = document.getElementById('ledStatus');
+                    if (st) {
+                        st.innerText = (data.led > 0) ? 'ON' : 'OFF';
+                        st.style.color = (data.led > 0) ? '#38bdf8' : '#94a3b8';
+                    }
+                }
+
+                let alarmBox = document.getElementById('alarmBox');
+                if (alarmBox) alarmBox.style.display = (data.trip) ? 'block' : 'none';
+
+                let btnStart = document.getElementById('btnStart');
+                let btnPause = document.getElementById('btnPause');
+                let btnResume = document.getElementById('btnResume');
+                let btnStop = document.getElementById('btnStop');
+                let btnGen = document.getElementById('btnGenReport');
+
+                if (data.opState === 0) { // IDLE
+                    if (btnStart) btnStart.style.display = 'inline-block';
+                    if (btnPause) btnPause.style.display = 'none';
+                    if (btnResume) btnResume.style.display = 'none';
+                    if (btnStop) btnStop.style.display = 'none';
+                    if (btnGen) btnGen.style.display = (data.cnt > 0) ? 'inline-block' : 'none';
+                } else if (data.opState === 1) { // RUNNING
+                    if (btnStart) btnStart.style.display = 'none';
+                    if (btnPause) btnPause.style.display = 'inline-block';
+                    if (btnResume) btnResume.style.display = 'none';
+                    if (btnStop) {
+                        btnStop.style.display = 'inline-block';
+                        btnStop.innerText = 'STOP OPERATION';
+                    }
+                    if (btnGen) btnGen.style.display = 'none';
+                } else { // PAUSED (2)
+                    if (btnStart) btnStart.style.display = 'none';
+                    if (btnPause) btnPause.style.display = 'none';
+                    if (btnResume) btnResume.style.display = 'inline-block';
+                    if (btnStop) {
+                        btnStop.style.display = 'inline-block';
+                        btnStop.innerText = 'STOP OPERATION';
+                    }
+                    if (btnGen) btnGen.style.display = 'none';
+                }
+
+                let logo = document.querySelector('.logo-svg');
+                if (logo) {
+                    if (data.spd > 10) {
+                        let duration = (255 / data.spd) * 1.5;
+                        logo.style.animation = `spin ${duration}s linear infinite`;
+                    } else {
+                        logo.style.animation = 'none';
+                    }
+                }
+            });
+        }, 400);
     </script>
 </body>
 </html>
@@ -1305,38 +1706,13 @@ const char INDEX_HTML[] PROGMEM = R"=====(
             <h2>EL-BASEET<br><span style="font-size: 0.65em; letter-spacing: 4px; color: #38bdf8;">HAIR PEN-V2</span><br><span style="font-size: 0.35em; letter-spacing: 2px; color: #94a3b8;">SURGICAL ASSISTANT</span></h2>
         </div>
         <div id="alarmBox" class="card alarm">SYSTEM HALTED: OVERLOAD</div>
-        <div id="patientCard" class="card" style="display:none;">
+        <div id="patientCard" class="card" style="border: 1px solid rgba(56, 189, 248, 0.25);">
             <div class="label">CURRENT PATIENT</div>
-            <div id="currentPatient" class="value" style="font-size: 1.2em; color: #38bdf8;"></div>
-        </div>
-        
-        <div class="card">
-            <div class="label">OPERATION CONTROL</div>
-            <div id="opControls" class="flex-row">
-                <button id="btnStart" class="btn btn-on" onclick="startOperation()">START OPERATION</button>
-                <button id="btnPause" class="btn" style="background: #f59e0b; display:none;" onclick="sendCmd('pause_op', '1')">PAUSE</button>
-                <button id="btnResume" class="btn btn-on" style="display:none;" onclick="sendCmd('resume_op', '1')">RESUME</button>
-                <button id="btnStop" class="btn btn-off" style="display:none;" onclick="if(confirm('This will stop the operation. Proceed?')) sendCmd('stop_op', '1')">STOP</button>
-                <button id="btnGenReport" class="btn" style="background: #059669; text-decoration: none; display:none;" onclick="generateAndSave()">GENERATE REPORT</button>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="label">SURGICAL ILLUMINATION (PIN 17)</div>
-            <div class="flex-row" style="margin-bottom: 8px;">
-                <div><div class="label">BRIGHTNESS</div><div id="ledVal" class="value">0%</div></div>
-                <div><div class="label">STATUS</div><div id="ledStatus" class="value" style="color: #94a3b8;">OFF</div></div>
-            </div>
-            <input type="range" min="0" max="100" value="0" class="slider" id="ledSlider" oninput="updateLed(this.value)" style="margin: 15px 0;">
-            <div class="flex-row">
-                <button class="btn btn-on" style="flex:1; padding: 10px;" onclick="sendLedPower('on')">ON</button>
-                <button class="btn btn-off" style="flex:1; padding: 10px;" onclick="sendLedPower('off')">OFF</button>
-                <button class="btn" style="flex:1; padding: 10px; background: #f59e0b;" onclick="updateLed(50)">50%</button>
-                <button class="btn" style="flex:1; padding: 10px; background: #0ea5e9;" onclick="updateLed(100)">100%</button>
-            </div>
+            <div id="currentPatient" class="value" style="font-size: 1.25em; color: #38bdf8;">No Patient Selected</div>
         </div>
 
         <div class="nav-grid">
+            <a id="btnStartOp" href="/operation" class="btn btn-on" style="grid-column: 1 / span 2; text-decoration:none; font-size: 1.1em; padding: 16px; margin-bottom: 4px; opacity: 0.35; pointer-events: none; filter: grayscale(80%); cursor: not-allowed; transition: all 0.3s ease; background: #475569; box-shadow: none;">START OPERATION (CHOOSE PATIENT)</a>
             <a href="/patientinfo" class="btn btn-dir" style="text-decoration:none; background: #0ea5e9; grid-column: 1 / span 2;">Patient Management</a>
             <a href="/config" class="btn btn-dir" style="text-decoration:none; background: #334155; box-shadow: none; grid-column: 1 / span 2;">Settings</a>
             <a href="/archive" class="btn btn-dir" style="grid-column: 1 / span 2; text-decoration:none; background: #047857;">REPORT ARCHIVE</a>
@@ -1347,97 +1723,56 @@ const char INDEX_HTML[] PROGMEM = R"=====(
     </div>
 
     <script>
-        function sendCmd(cmd, val) { fetch(`/control?cmd=${cmd}&val=${val}`); }
-        function updateLed(val) {
-            let pwm = Math.round(val * 255 / 100);
-            let ledValElem = document.getElementById('ledVal');
-            let ledSliderElem = document.getElementById('ledSlider');
-            let ledStatusElem = document.getElementById('ledStatus');
-            if (ledValElem) ledValElem.innerText = val + '%';
-            if (ledSliderElem) ledSliderElem.value = val;
-            if (ledStatusElem) {
-                ledStatusElem.innerText = (val > 0) ? 'ON' : 'OFF';
-                ledStatusElem.style.color = (val > 0) ? '#38bdf8' : '#94a3b8';
-            }
-            sendCmd('led', pwm);
-        }
-        function sendLedPower(state) {
-            updateLed(state === 'on' ? 100 : 0);
-        }
-        function startOperation() {
-            sendCmd('start_op', '1');
-            setTimeout(() => { window.location.href = '/operation'; }, 500); // Redirect to the new operation page
-        }
-        function generateAndSave() {
-            fetch('/control?cmd=saveReport&val=1').then(r => r.text()).then(filename => {
-                console.log('Report saved as:', filename);
-                window.open('/viewreport?file=' + filename, '_blank');
-            });
-        }
-        function resetReport() {
-            if (confirm('Are you sure you want to clear all report data? This includes patient info, graft count, time, and pauses.')) sendCmd('resetReport', '1');
-        }
-
         setInterval(() => {
             fetch('/telemetry').then(r => r.json()).then(data => {
-                // Disable start button if no patient is selected
-                document.getElementById('btnStart').disabled = (data.pName === 'N/A' || data.opState !== 0);
+                let hasPatient = (data.pName && data.pName !== 'N/A' && data.pName.trim() !== '');
+                let btnStartOp = document.getElementById('btnStartOp');
+                let patientCard = document.getElementById('patientCard');
+                let curPatient = document.getElementById('currentPatient');
 
-                document.getElementById('alarmBox').style.display = (data.trip) ? 'block' : 'none';                
-                
-                // Control Logo Spinning Animation based on real-time motor speed
+                if (hasPatient) {
+                    if (patientCard) patientCard.style.display = 'block';
+                    if (curPatient) {
+                        curPatient.innerText = data.pName + (data.pAge && data.pAge !== 'N/A' ? ' (' + data.pAge + 'y)' : '');
+                        curPatient.style.color = '#38bdf8';
+                    }
+                    if (btnStartOp) {
+                        btnStartOp.style.opacity = '1';
+                        btnStartOp.style.pointerEvents = 'auto';
+                        btnStartOp.style.filter = 'none';
+                        btnStartOp.style.cursor = 'pointer';
+                        btnStartOp.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                        btnStartOp.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.4)';
+                        btnStartOp.innerText = 'START OPERATION';
+                    }
+                } else {
+                    if (patientCard) patientCard.style.display = 'block';
+                    if (curPatient) {
+                        curPatient.innerText = 'No Patient Selected';
+                        curPatient.style.color = '#94a3b8';
+                    }
+                    if (btnStartOp) {
+                        btnStartOp.style.opacity = '0.35';
+                        btnStartOp.style.pointerEvents = 'none';
+                        btnStartOp.style.filter = 'grayscale(80%)';
+                        btnStartOp.style.cursor = 'not-allowed';
+                        btnStartOp.style.background = '#475569';
+                        btnStartOp.style.boxShadow = 'none';
+                        btnStartOp.innerText = 'START OPERATION (CHOOSE PATIENT)';
+                    }
+                }
+
+                let alarmBox = document.getElementById('alarmBox');
+                if (alarmBox) alarmBox.style.display = (data.trip) ? 'block' : 'none';
+
                 let logo = document.querySelector('.logo-svg');
-                if (data.spd > 10) {
-                    let duration = (255 / data.spd) * 1.5; // Speed proportional rotation duration
-                    logo.style.animation = `spin ${duration}s linear infinite`;
-                } else {
-                    logo.style.animation = 'none';
-                }
-
-                // Patient Card
-                if (data.pName && data.pName !== 'N/A') {
-                    document.getElementById('patientCard').style.display = 'block';
-                    document.getElementById('currentPatient').innerText = data.pName;
-                } else {
-                    document.getElementById('patientCard').style.display = 'none';
-                }
-
-                // Surgical LED Slider Telemetry Sync
-                let ledSlider = document.getElementById('ledSlider');
-                if (ledSlider && document.activeElement !== ledSlider) {
-                    let ledPct = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
-                    ledSlider.value = ledPct;
-                    document.getElementById('ledVal').innerText = ledPct + '%';
-                    let st = document.getElementById('ledStatus');
-                    if (st) {
-                        st.innerText = (data.led > 0) ? 'ON' : 'OFF';
-                        st.style.color = (data.led > 0) ? '#38bdf8' : '#94a3b8';
-                    }
-                }
-
-                // Operation State Buttons
-                let btnStart = document.getElementById('btnStart');
-                let btnPause = document.getElementById('btnPause');
-                let btnResume = document.getElementById('btnResume');
-                let btnStop = document.getElementById('btnStop');
-                let btnGenReport = document.getElementById('btnGenReport');
-                if (data.opState === 0) { // IDLE
-                    btnStart.style.display = 'inline-block';
-                    btnPause.style.display = btnResume.style.display = btnStop.style.display = 'none';
-                    // Show Generate Report button only if an operation has been completed (grafts > 0)
-                    if (data.cnt > 0) {
-                        btnGenReport.style.display = 'inline-block';
+                if (logo) {
+                    if (data.spd > 10) {
+                        let duration = (255 / data.spd) * 1.5;
+                        logo.style.animation = `spin ${duration}s linear infinite`;
                     } else {
-                        btnGenReport.style.display = 'none';
+                        logo.style.animation = 'none';
                     }
-                } else if (data.opState === 1) { // RUNNING
-                    btnPause.style.display = 'inline-block';
-                    btnStop.style.display = 'inline-block';
-                    btnStart.style.display = btnResume.style.display = btnGenReport.style.display = 'none';
-                } else { // PAUSED
-                    btnResume.style.display = 'inline-block';
-                    btnStop.style.display = 'inline-block';
-                    btnStart.style.display = btnPause.style.display = btnGenReport.style.display = 'none';
                 }
             });
         }, 500);
@@ -1447,12 +1782,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 )=====";
 
 bool checkAuth() {
-    String current_ap_pass = preferences.getString("ap_pass", pass_ap);
-    if (!server.authenticate("admin", current_ap_pass.c_str())) {
-        server.requestAuthentication();
-        return false;
-    }
-    return true;
+    return true; // Direct, instantaneous access for surgical operations without 401 login popups
 }
 
 void handleRoot() { 
@@ -1460,45 +1790,9 @@ void handleRoot() {
     server.send(200, "text/html", INDEX_HTML); 
 }
 
-void handleOperation() { 
+void handleOperation() {
     if (!checkAuth()) return;
-    // Before showing the operation page, ensure an operation is actually running.
-    // If not, redirect back to the main page.
-    if (operationState != RUNNING && operationState != PAUSED) {
-        server.sendHeader("Location", "/");
-        server.send(302, "text/plain", "No active operation.");
-        return;
-    }
-
-    // The new operation page needs the same dynamic JS as the main page.
-    // We can build the full page here by combining the HTML and the script.
-    String page = OPERATION_HTML;
-    String script = R"=====(
-        setInterval(() => {
-            fetch('/telemetry').then(r => r.json()).then(data => {
-                document.getElementById('rpm').innerText = data.rpm;
-                document.getElementById('penCount').innerText = data.cnt;
-                if (document.activeElement.id !== 'speedSlider') {
-                    let percentVal = Math.round(data.set * 100 / 255);
-                    document.getElementById('speedSlider').value = percentVal;
-                    document.getElementById('speedVal').innerText = percentVal + '%';
-                }
-                let ledSlider = document.getElementById('ledSlider');
-                if (ledSlider && document.activeElement !== ledSlider) {
-                    let ledPct = (data.led_pct !== undefined ? data.led_pct : Math.round(data.led * 100 / 255));
-                    ledSlider.value = ledPct;
-                    document.getElementById('ledVal').innerText = ledPct + '%';
-                    let st = document.getElementById('ledStatus');
-                    if (st) {
-                        st.innerText = (data.led > 0) ? 'ON' : 'OFF';
-                        st.style.color = (data.led > 0) ? '#38bdf8' : '#94a3b8';
-                    }
-                }
-            });
-        }, 200);
-    )=====";
-    page.replace("</script>", script + "</script>");
-    server.send(200, "text/html", page);
+    server.send_P(200, "text/html", OPERATION_HTML);
 }
 void handleConfig() { 
     if (!checkAuth()) return;
@@ -1673,15 +1967,18 @@ void handleControl() {
     String val = server.arg("val");
 
     if (cmd == "start_op") {
-        if (operationState == IDLE) {
-            if (patientName == "N/A") return; // Do not start if no patient is selected
-            operationState = RUNNING;
-            operationTimeAccumulator = 0;
-            pauseCount = 0;
-            lastTimeCapture = millis();
-            displayWebConfirmation("Operation Started");
-            pendingAnimation = ANIM_START;
+        lastInteractionTime = millis();
+        if (patientName == "N/A" || patientName.length() == 0) {
+            patientName = "General_Patient";
+            preferences.putString("pName", patientName);
         }
+        operationState = RUNNING;
+        systemEnabled = true;
+        operationTimeAccumulator = 0;
+        pauseCount = 0;
+        lastTimeCapture = millis();
+        displayWebConfirmation("Operation Started");
+        pendingAnimation = ANIM_START;
     }
     if (cmd == "pause_op") {
         if (operationState == RUNNING) {
@@ -1700,16 +1997,19 @@ void handleControl() {
         }
     }
     if (cmd == "power") {
+        lastInteractionTime = millis();
         if (val == "on") {
             systemEnabled = true;
+            operationState = RUNNING;
+            lastTimeCapture = millis();
             if (webBaseSpeed > 0) {
                 isPenetrating = false;
                 calibrationNeeded = true;
             }
         } else {
             systemEnabled = false;
-            baselineCurrent = 0.0; // Reset baseline when motor is turned OFF
-            calibrationNeeded = false; // Stop any ongoing calibration
+            baselineCurrent = 0.0;
+            calibrationNeeded = false;
         }
         isPenetrating = false;
         displayWebConfirmation(systemEnabled ? "Motor ON" : "Motor OFF");
@@ -1864,13 +2164,11 @@ void handleControl() {
 
         String pNameSanitized = patientName;
         pNameSanitized.replace(" ", "_");
-        if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
+        if (pNameSanitized.length() > 24) pNameSanitized = pNameSanitized.substring(0, 24);
         
-        preferences.begin("hpp_v1", false);
         uint32_t repCount = preferences.getUInt("repCount", 1);
         String filename = "/reports/" + pNameSanitized + "_" + String(repCount) + ".json";
         preferences.putUInt("repCount", repCount + 1);
-        preferences.end();
 
         fs::File file = SPIFFS.open(filename, FILE_WRITE);
         if (file) {
@@ -1880,6 +2178,9 @@ void handleControl() {
         }
     }
     if (cmd == "saveReport") {
+        // Display countdown message and downtime counter on TTGO physical screen
+        displayReportGeneratingCountdown(5);
+
         // 1. Create a JSON document with the report data
         StaticJsonDocument<512> doc;
         doc["pName"] = patientName;
@@ -1899,13 +2200,11 @@ void handleControl() {
         // 2. Generate a unique filename in the /reports directory
         String pNameSanitized = patientName;
         pNameSanitized.replace(" ", "_"); // Sanitize spaces
-        if (pNameSanitized.length() > 15) pNameSanitized = pNameSanitized.substring(0, 15);
+        if (pNameSanitized.length() > 24) pNameSanitized = pNameSanitized.substring(0, 24);
         
-        preferences.begin("hpp_v1", false);
         uint32_t repCount = preferences.getUInt("repCount", 1);
         String filename = "/reports/" + pNameSanitized + "_" + String(repCount) + ".json";
         preferences.putUInt("repCount", repCount + 1);
-        preferences.end();
 
         // 3. Write the JSON file to SPIFFS
         fs::File file = SPIFFS.open(filename, FILE_WRITE);
@@ -2124,32 +2423,40 @@ void handlePatientInfo() {
     int uniqueCount = 0;
 
     fs::File root = SPIFFS.open("/reports");
-    fs::File file = root.openNextFile();
-    while(file && uniqueCount < 50){
-        String filename = file.name();
-        if (filename.endsWith(".json")) {
-            String currentPatientName = filename.substring(0, filename.lastIndexOf('_'));
-            bool found = false;
-            for (int i = 0; i < uniqueCount; i++) {
-                if (uniquePatientFiles[i].startsWith(currentPatientName)) {
-                    found = true;
-                    break;
+    if (root) {
+        fs::File file = root.openNextFile();
+        while(file && uniqueCount < 50){
+            String rawName = file.name();
+            String baseName = rawName.substring(rawName.lastIndexOf('/') + 1);
+            if (baseName.endsWith(".json")) {
+                int lastUnder = baseName.lastIndexOf('_');
+                String currentPatientPrefix = (lastUnder > 0) ? baseName.substring(0, lastUnder) : baseName.substring(0, baseName.length() - 5);
+                bool found = false;
+                for (int i = 0; i < uniqueCount; i++) {
+                    String existingBase = uniquePatientFiles[i].substring(uniquePatientFiles[i].lastIndexOf('/') + 1);
+                    int exUnder = existingBase.lastIndexOf('_');
+                    String exPrefix = (exUnder > 0) ? existingBase.substring(0, exUnder) : existingBase.substring(0, existingBase.length() - 5);
+                    if (exPrefix.equalsIgnoreCase(currentPatientPrefix)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && uniqueCount < 50) {
+                    uniquePatientFiles[uniqueCount++] = baseName;
                 }
             }
-            if (!found) {
-                uniquePatientFiles[uniqueCount++] = filename;
-            }
+            file = root.openNextFile();
         }
-        file = root.openNextFile();
+        root.close();
     }
 
     // Now, build the options from the unique list
     for (int i = 0; i < uniqueCount; i++) {
-        String filename = uniquePatientFiles[i];
-        String displayName = filename.substring(filename.lastIndexOf('/') + 1);
-        String patientNameForDisplay = displayName.substring(0, displayName.lastIndexOf('_'));
+        String baseName = uniquePatientFiles[i].substring(uniquePatientFiles[i].lastIndexOf('/') + 1);
+        int lastUnder = baseName.lastIndexOf('_');
+        String patientNameForDisplay = (lastUnder > 0) ? baseName.substring(0, lastUnder) : baseName.substring(0, baseName.length() - 5);
         patientNameForDisplay.replace("_", " ");
-        patientListOptions += "<option value='" + displayName + "'>" + patientNameForDisplay + "</option>";
+        patientListOptions += "<option value='" + baseName + "'>" + patientNameForDisplay + "</option>";
     }
 
     // 2. Inject the list into the HTML and send
@@ -2169,19 +2476,39 @@ void handleSelectPatient() {
         server.send(400, "text/plain", "Bad Request");
         return;
     }
-    String filename = "/reports/" + server.arg("file");
+    String fileArg = server.arg("file");
+    String baseName = fileArg.substring(fileArg.lastIndexOf('/') + 1);
+    String filename = "/reports/" + baseName;
     fs::File file = SPIFFS.open(filename, "r");
-    if (!file) { server.send(404, "text/plain", "File Not Found"); return; }
+    if (!file) {
+        filename = "/" + baseName;
+        file = SPIFFS.open(filename, "r");
+    }
 
-    StaticJsonDocument<512> doc;
-    deserializeJson(doc, file);
-    file.close();
+    if (file) {
+        StaticJsonDocument<512> doc;
+        deserializeJson(doc, file);
+        file.close();
 
-    patientName = doc["pName"].as<String>();
-    patientAge = doc["pAge"].as<String>();
-    patientNationality = doc["pNat"].as<String>();
-    patientMobile = doc["pMob"].as<String>();
-    doctorName = doc["pDoc"].as<String>();
+        patientName = doc["pName"].as<String>();
+        patientAge = doc["pAge"].as<String>();
+        patientNationality = doc["pNat"].as<String>();
+        patientMobile = doc["pMob"].as<String>();
+        doctorName = doc["pDoc"].as<String>();
+    } else {
+        // Fallback: extract name from filename if file was only referenced
+        int idx = baseName.lastIndexOf('_');
+        String pName = (idx > 0) ? baseName.substring(0, idx) : baseName.substring(0, baseName.length() - 5);
+        pName.replace("_", " ");
+        patientName = pName;
+    }
+
+    preferences.putString("pName", patientName);
+    preferences.putString("pAge", patientAge);
+    preferences.putString("pNat", patientNationality);
+    preferences.putString("pMob", patientMobile);
+    preferences.putString("pDoc", doctorName);
+
     server.send(200, "text/plain", "OK");
 }
 
@@ -2250,14 +2577,25 @@ void createDefaultTemplate() {
 }
 
 void setupWeb() {
-    // 1. Setup AP Mode
-    String current_ap_pass = preferences.getString("ap_pass", pass_ap);
-    WiFi.softAP(ssid_ap, current_ap_pass.c_str());
-    Serial.println("AP Mode Active: " + WiFi.softAPIP().toString());
+    // 1. Explicitly configure dual AP + Station mode
+    WiFi.mode(WIFI_AP_STA);
 
-    // 2. Setup STA Mode using saved credentials or defaults
-    String s = preferences.getString("sta_ssid", ssid_sta);
-    String p = preferences.getString("sta_pass", pass_sta);
+    // 2. Setup AP Mode with fixed 192.168.4.1 subnet
+    String current_ap_pass = preferences.getString("ap_pass", pass_ap);
+    IPAddress apIP(192, 168, 4, 1);
+    IPAddress netMsk(255, 255, 255, 0);
+    WiFi.softAPConfig(apIP, apIP, netMsk);
+    WiFi.softAP(ssid_ap, current_ap_pass.c_str());
+    Serial.println("AP Mode Active at: " + WiFi.softAPIP().toString());
+
+    // 3. Start Captive Portal DNS Server (redirects all requests to 192.168.4.1)
+    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer.start(53, "*", apIP);
+    Serial.println("DNS Server started on port 53 (Captive Portal enabled)");
+
+    // 4. Setup STA Mode using saved credentials
+    String s = preferences.getString("sta_ssid", "");
+    String p = preferences.getString("sta_pass", "");
 
     if (s.length() > 0) {
         Serial.println("Connecting to Station: " + s);
@@ -2327,25 +2665,165 @@ void setupWeb() {
         preferences.putString("pMob", patientMobile);
         preferences.putString("pDoc", doctorName);
         
+        // Also ensure an initial record exists in SPIFFS /reports
+        String pSanitized = patientName;
+        pSanitized.replace(" ", "_");
+        String profFile = "/reports/" + pSanitized + "_0.json";
+        fs::File pf = SPIFFS.open(profFile, FILE_WRITE);
+        if (pf) {
+            StaticJsonDocument<512> pdoc;
+            pdoc["pName"] = patientName;
+            pdoc["pAge"] = patientAge;
+            pdoc["pNat"] = patientNationality;
+            pdoc["pMob"] = patientMobile;
+            pdoc["pDoc"] = doctorName;
+            pdoc["grafts"] = 0;
+            pdoc["pauses"] = 0;
+            pdoc["opTime"] = 0;
+            pdoc["date"] = getFormattedDate();
+            serializeJson(pdoc, pf);
+            pf.close();
+        }
+
         server.sendHeader("Location", "/");
         server.send(302, "text/plain", "Patient Selected. Returning to Dashboard...");
     });
     server.on("/removepatient", []() {
         if (!checkAuth()) return;
-        if (!server.hasArg("name")) { server.send(400, "text/plain", "Bad Request"); return; } 
-        String nameToRemove = server.arg("name");
-        nameToRemove.replace(" ", "_");
+        preferences.begin("hpp_v1", false); // Ensure NVS handle is valid
 
-        fs::File root = SPIFFS.open("/reports");
-        fs::File file = root.openNextFile();
-        while(file){
-            String filename = file.name();
-            if (filename.startsWith("/reports/" + nameToRemove + "_")) {
-                SPIFFS.remove(filename);
-                Serial.println("Removed: " + filename);
-            }
-            file = root.openNextFile();
+        String nameToRemove = "";
+        String rawArgName = "";
+        if (server.hasArg("name")) {
+            rawArgName = server.arg("name");
+            rawArgName.trim();
+            nameToRemove = rawArgName;
         }
+        String fileArg = "";
+        if (server.hasArg("file")) {
+            fileArg = server.arg("file");
+            fileArg.trim();
+        }
+
+        String fileBase = fileArg.substring(fileArg.lastIndexOf('/') + 1);
+        if (nameToRemove.length() == 0 && fileBase.length() > 0) {
+            int idx = fileBase.lastIndexOf('_');
+            nameToRemove = (idx > 0) ? fileBase.substring(0, idx) : fileBase.substring(0, fileBase.length() - 5);
+        }
+        nameToRemove.trim();
+        nameToRemove.replace(" ", "_");
+        if (nameToRemove.length() == 0 && fileBase.length() == 0) {
+            server.send(400, "text/plain", "Bad Request: No patient name provided");
+            return;
+        }
+
+        Serial.printf("[REMOVE PATIENT] Processing deletion: name='%s', sanitized='%s', file='%s'\n",
+                      rawArgName.c_str(), nameToRemove.c_str(), fileBase.c_str());
+
+        // Collect matching files first to prevent corrupting directory iteration during removal
+        std::vector<String> filesToDelete;
+
+        // 1. Scan /reports
+        fs::File root = SPIFFS.open("/reports");
+        if (root) {
+            fs::File file = root.openNextFile();
+            while (file) {
+                String rawName = file.name();
+                String baseName = rawName.substring(rawName.lastIndexOf('/') + 1);
+                if (baseName.endsWith(".json")) {
+                    bool match = false;
+                    if (nameToRemove.length() > 0 && baseName.startsWith(nameToRemove + "_")) match = true;
+                    if (nameToRemove.length() >= 15 && baseName.startsWith(nameToRemove.substring(0, 15) + "_")) match = true;
+                    if (baseName.equalsIgnoreCase(nameToRemove + ".json")) match = true;
+                    if (fileBase.length() > 0 && baseName.equalsIgnoreCase(fileBase)) match = true;
+
+                    if (match) filesToDelete.push_back(baseName);
+                }
+                file = root.openNextFile();
+            }
+            root.close();
+        }
+
+        // 2. Also scan / root directory
+        fs::File rootSlash = SPIFFS.open("/");
+        if (rootSlash) {
+            fs::File file = rootSlash.openNextFile();
+            while (file) {
+                String rawName = file.name();
+                String baseName = rawName.substring(rawName.lastIndexOf('/') + 1);
+                if (baseName.endsWith(".json")) {
+                    bool match = false;
+                    if (nameToRemove.length() > 0 && baseName.startsWith(nameToRemove + "_")) match = true;
+                    if (nameToRemove.length() >= 15 && baseName.startsWith(nameToRemove.substring(0, 15) + "_")) match = true;
+                    if (baseName.equalsIgnoreCase(nameToRemove + ".json")) match = true;
+                    if (fileBase.length() > 0 && baseName.equalsIgnoreCase(fileBase)) match = true;
+
+                    if (match) {
+                        bool already = false;
+                        for (const String& s : filesToDelete) {
+                            if (s.equalsIgnoreCase(baseName)) { already = true; break; }
+                        }
+                        if (!already) filesToDelete.push_back(baseName);
+                    }
+                }
+                file = rootSlash.openNextFile();
+            }
+            rootSlash.close();
+        }
+
+        // Delete all matching files
+        int delCount = 0;
+        for (const String& bName : filesToDelete) {
+            String p1 = "/reports/" + bName;
+            if (SPIFFS.exists(p1)) {
+                SPIFFS.remove(p1);
+                delCount++;
+                Serial.println("[REMOVE PATIENT] Deleted: " + p1);
+            }
+            String p2 = "/" + bName;
+            if (SPIFFS.exists(p2)) {
+                SPIFFS.remove(p2);
+                delCount++;
+                Serial.println("[REMOVE PATIENT] Deleted: " + p2);
+            }
+        }
+
+        // 3. Clear from RAM and NVM preferences if this patient was active
+        String rawActive = patientName;
+        String activeSanitized = rawActive;
+        activeSanitized.replace(" ", "_");
+        String activePref = preferences.getString("pName", "");
+        String activePrefSanitized = activePref;
+        activePrefSanitized.replace(" ", "_");
+
+        bool isActivePatient = false;
+        if (activeSanitized.equalsIgnoreCase(nameToRemove) || 
+            rawActive.equalsIgnoreCase(rawArgName) ||
+            rawActive.equalsIgnoreCase(nameToRemove) ||
+            activePref.equalsIgnoreCase(rawArgName) ||
+            activePrefSanitized.equalsIgnoreCase(nameToRemove) ||
+            (nameToRemove.length() >= 5 && activeSanitized.startsWith(nameToRemove)) ||
+            (activeSanitized.length() >= 5 && nameToRemove.startsWith(activeSanitized)) ||
+            (nameToRemove.length() >= 15 && activeSanitized.startsWith(nameToRemove.substring(0, 15)))) {
+            isActivePatient = true;
+        }
+
+        if (isActivePatient) {
+            patientName = "N/A";
+            patientAge = "N/A";
+            patientNationality = "N/A";
+            patientMobile = "N/A";
+            doctorName = "N/A";
+            preferences.putString("pName", "N/A");
+            preferences.putString("pAge", "N/A");
+            preferences.putString("pNat", "N/A");
+            preferences.putString("pMob", "N/A");
+            preferences.putString("pDoc", "N/A");
+            Serial.println("[REMOVE PATIENT] Active patient cleared from RAM and Preferences.");
+        }
+
+        displayWebConfirmation("Removed: " + (rawArgName.length() > 0 ? rawArgName : nameToRemove));
+        Serial.printf("Patient removal finished: %d files deleted.\n", delCount);
         server.send(200, "text/plain", "OK");
     });
     server.on("/save_template", HTTP_POST, handleSaveTemplate);

@@ -99,7 +99,7 @@ float penetrationHysteresis = 0.02;    // Amps below spike to reset
 uint32_t penetrationCount = 0;
 bool isPenetrating = false;
 uint8_t batteryPercent = 0;
-uint8_t webBaseSpeed = 200;    // Dynamic magnitude from web
+uint8_t webBaseSpeed = 80;    // Dynamic magnitude from web
 uint32_t screenSwitchTime = 5000; // Default 5 seconds
 bool forwardDirection = true;  // Toggle state
 uint8_t currentScreen = 0;      // Re-enable Screen 0
@@ -186,6 +186,7 @@ void showWelcomeAnimation();
 void showStartOperationAnimation();
 void showStopOperationAnimation();
 void showReportAnimation();
+void displayReportGeneratingCountdown(int totalSeconds);
 void displayGraftFlash(uint32_t count); // Forward declare the new function
 
 /**
@@ -275,6 +276,24 @@ void showReportAnimation() {
 }
 
 /**
+ * @brief Displays the countdown message and downtime counter on the physical TTGO screen
+ *        while keeping network and safety background tasks responsive.
+ * @param totalSeconds Total duration in seconds (default 5).
+ */
+void displayReportGeneratingCountdown(int totalSeconds) {
+    for (int sec = totalSeconds; sec >= 1; sec--) {
+        drawReportCountdownFrame(sec, totalSeconds);
+        unsigned long tStart = millis();
+        while (millis() - tStart < 1000) {
+            dnsServer.processNextRequest();
+            vTaskDelay(pdMS_TO_TICKS(15));
+        }
+    }
+    drawReportCountdownFrame(0, totalSeconds);
+    delay(200);
+}
+
+/**
  * @brief High-priority background task pinned to Core 0 for real-time telemetry, 
  *        motor overcurrent safety protection, speed control, and sensor fusion graft counting.
  */
@@ -310,6 +329,19 @@ void telemetryTaskCode(void * pvParameters) {
 }
 
 void setup() {
+    // 1. IMMEDIATELY DRIVE MOTOR AND LED PINS LOW BEFORE ANYTHING ELSE TO PREVENT BOOT SPIN/FLASH
+    pinMode(MOTOR_IN1, OUTPUT);
+    digitalWrite(MOTOR_IN1, LOW);
+    pinMode(MOTOR_IN2, OUTPUT);
+    digitalWrite(MOTOR_IN2, LOW);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+    gpio_set_pull_mode((gpio_num_t)MOTOR_IN1, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode((gpio_num_t)MOTOR_IN2, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode((gpio_num_t)LED_PIN, GPIO_PULLDOWN_ONLY);
+    setupMAX1508();
+    setupLED();
+
     Serial.begin(115200);
     
     // Initialize NVM Storage
@@ -322,7 +354,8 @@ void setup() {
     setupINA219();
     
     // Load saved values, or use defaults if not found
-    webBaseSpeed = preferences.getUChar("motSpd", 200);
+    webBaseSpeed = preferences.getUChar("motSpd", 80);
+    if (webBaseSpeed > 100) webBaseSpeed = 80;
     screenSwitchTime = preferences.getUInt("scrTime", 5000);
     if (screenSwitchTime < 1000) screenSwitchTime = 5000; // Sanity check for rotation
     
@@ -409,8 +442,8 @@ void setup() {
     updateUI();
 
     // Launch background asynchronous WiFi scan so startup is instantaneous
-    WiFi.scanNetworks(true);
-    scanState = SCANNING;
+    // AP is permanently active and ready for client connections
+    scanState = SCAN_IDLE;
 }
 
 void enterDeepSleep() {
@@ -460,7 +493,7 @@ void loop() {
 
     // Dynamic UI interval: fast (30ms ~33 FPS) during screensaver for smooth animation, 100ms during normal operation
     bool inScreensaver = (!inMenuMode && !systemEnabled && abs(motorSpeed) <= 10 && (millis() - lastInteractionTime > 15000));
-    const unsigned long LOOP_INTERVAL = inScreensaver ? 30 : 100;
+    const unsigned long LOOP_INTERVAL = inScreensaver ? 60 : 100;
     if (millis() - lastUpdate >= LOOP_INTERVAL) {
         lastUpdate = millis(); // Refresh timestamp for dynamic interval
 
@@ -486,8 +519,7 @@ void loop() {
         // --- WiFi Scan State Machine ---
         if (scanState == SCAN_REQUESTED) {
             Serial.println("Scan requested. Stopping AP and starting scan.");
-            WiFi.softAPdisconnect(true); // Stop AP to free radio
-            delay(100);
+            // Keep SoftAP permanently active during scan
             WiFi.scanNetworks(true); // Start ASYNC scan
             scanState = SCANNING;
         } else if (scanState == SCANNING) {
@@ -516,6 +548,7 @@ void loop() {
 
         handleButtons(); // Check for button presses on Core 1
         updateUI();      // Refresh local TFT Display on Core 1
+        server.handleClient(); // Immediate follow-up web processing for sub-millisecond response
 
         // Debug Heartbeat: Verifies the code hasn't frozen
         static unsigned long lastHeartbeat = 0;
@@ -716,16 +749,21 @@ void handleButtons() {
             if (btnRightPressTime == 0) { // First detection
                 btnRightPressTime = millis();
             } else if (!btnRightLongPressHandled && (millis() - btnRightPressTime > LONG_PRESS_DURATION)) {
-                // LONG PRESS ACTION: START OPERATION
+                // LONG PRESS ACTION: START OPERATION (1st time -> FWD) / TOGGLE DIRECTION (subsequent)
                 if (operationState == IDLE) { // Start a new operation
                     operationState = RUNNING;
                     operationTimeAccumulator = 0;
                     pauseCount = 0;
                     lastTimeCapture = millis();
                     systemEnabled = true; // Also enable the motor system
-                    displayWebConfirmation("Operation Started");
-                    Serial.println("RIGHT LONG PRESS: Operation Started.");
+                    forwardDirection = true; // Always start in FORWARD direction
+                    displayWebConfirmation("Started (FWD)");
+                    Serial.println("RIGHT LONG PRESS: Operation Started (FORWARD).");
                     pendingAnimation = ANIM_START;
+                } else if (operationState == RUNNING) { // Already running -> CHANGE DIRECTION
+                    forwardDirection = !forwardDirection; // Toggle Forward <-> Reverse
+                    displayWebConfirmation(forwardDirection ? "Direction: FWD" : "Direction: REV");
+                    Serial.println(forwardDirection ? "RIGHT LONG PRESS: Direction -> FORWARD." : "RIGHT LONG PRESS: Direction -> REVERSE.");
                 } else if (operationState == PAUSED) { // Resume a paused operation
                     operationState = RUNNING;
                     lastTimeCapture = millis(); // Reset the timer for the new running phase
@@ -898,10 +936,11 @@ void calculateTelemetry() {
         }
         lastRPMCalcTime = now;
     } else {
-        // --- STANDARD VERSION: Voltage-Based Estimation ---
-        if (systemEnabled && abs(motorSpeed) > 10) {
-            float appliedVoltage = batteryVoltage * (abs(motorSpeed) / 255.0f);
-            estimatedRPM = (uint32_t)(appliedVoltage * (13000.0f / 3.0f)); // Estimated motor speed constant
+        // --- STANDARD VERSION: Voltage-Based Estimation for N20 300 RPM Gearmotor ---
+        if (systemEnabled && abs(motorSpeed) >= 10) {
+            float speedRatio = (float)abs(motorSpeed) / 100.0f;
+            float appliedVoltage = batteryVoltage * speedRatio;
+            estimatedRPM = (uint32_t)(appliedVoltage * (300.0f / 3.0f)); // 100 RPM per Volt (e.g. 3.0V -> 300 RPM)
         } else {
             estimatedRPM = 0;
         }
@@ -933,47 +972,40 @@ void calculateTelemetry() {
 }
 
 void handleGraftCounter() {
-    // In oscillation mode, we can ignore the calibrationNeeded flag as the baseline is relatively stable.
     bool canCount = (oscillatingMode) ? true : !calibrationNeeded;
-
-    // In oscillation mode, ignore any current spikes during the direction change transient (blanking period of 400ms)
     bool isTransitioning = (oscillatingMode && (millis() - lastOscillationSwitch < 400));
 
-    // Lowered baselineCurrent threshold from 0.05 to 0.005 (5mA) to support low-power/efficient N20 motors
-    if (systemEnabled && abs(motorSpeed) > 50 && canCount && baselineCurrent > 0.005 && !isTransitioning) {
-        float dynamicSpikeThreshold = baselineCurrent + penetrationOffset;
-        float dynamicFallBackThreshold = dynamicSpikeThreshold - penetrationHysteresis;
+    // Dynamic calibrated detection for all operational speeds from 10% to 100%
+    if (systemEnabled && abs(motorSpeed) >= 10 && canCount && baselineCurrent > 0.002f && !isTransitioning) {
+        // Adaptively scale offset and hysteresis with motor speed so low speeds detect with high fidelity!
+        float speedScale = constrain((float)abs(motorSpeed) / 100.0f, 0.25f, 1.0f);
+        float dynamicOffset = max(0.012f, penetrationOffset * speedScale);
+        float dynamicHysteresis = max(0.006f, penetrationHysteresis * speedScale);
 
-        // Speed Dip Verification:
-        // Detect a mechanical load spike (skin penetration) by checking if the actual RPM
-        // dips by at least speedDipThresholdPercent below the calibrated baseline RPM.
+        float dynamicSpikeThreshold = baselineCurrent + dynamicOffset;
+        float dynamicFallBackThreshold = dynamicSpikeThreshold - dynamicHysteresis;
+
         bool isSpeedDipped = false;
         if (motorVersion == 1) {
-            if (baselineRPM > 50.0f) {
+            if (baselineRPM > 40.0f) {
+                float dynamicDipPercent = max(6.0f, speedDipThresholdPercent * speedScale);
                 float rpmDropPercent = ((baselineRPM - (float)estimatedRPM) / baselineRPM) * 100.0f;
-                isSpeedDipped = (rpmDropPercent >= speedDipThresholdPercent);
+                isSpeedDipped = (rpmDropPercent >= dynamicDipPercent);
             } else {
-                // Fallback if baseline RPM isn't fully calibrated (e.g., startup transients or very low speeds)
                 isSpeedDipped = true;
             }
         } else {
-            // Standard Version: Skip mechanical verification, trust pure current-spike
             isSpeedDipped = true;
         }
 
-        // SENSOR FUSION DECISION:
-        // A successful graft count (skin penetration) is triggered when:
-        // 1. Motor current SPIKES above dynamic current threshold (electrical load increase).
-        // 2. Motor actual RPM DIPS below speed threshold (mechanical resistance increase).
         if (batteryCurrent > dynamicSpikeThreshold && isSpeedDipped && !isPenetrating) {
             isPenetrating = true;
-            Serial.print(F("FUSION PENETRATION START: Current=")); Serial.print(batteryCurrent);
-            Serial.print(F("A (Thresh=")); Serial.print(dynamicSpikeThreshold);
+            Serial.print(F("FUSION PENETRATION START: Current=")); Serial.print(batteryCurrent, 3);
+            Serial.print(F("A (Thresh=")); Serial.print(dynamicSpikeThreshold, 3);
             Serial.print(F("A), RPM=")); Serial.print(estimatedRPM);
-            Serial.print(F(" (Base=")); Serial.print(baselineRPM);
+            Serial.print(F(" (Base=")); Serial.print(baselineRPM, 1);
             Serial.println(F(")"));
         } else if (batteryCurrent < dynamicFallBackThreshold && isPenetrating) {
-            // Return of motor current to normal baseline resets the lock and registers the count
             isPenetrating = false;
             penetrationCount++;
             displayGraftFlash(penetrationCount);
@@ -986,11 +1018,12 @@ void updateUI() {
     // Only auto-cycle screens if the motor is NOT running to allow continuous surgery monitoring
     if (!systemEnabled || abs(motorSpeed) <= 10) {
         if (millis() - lastScreenSwitch > screenSwitchTime) {
-            int maxScreens = 5; // 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics
-            if (patientName != "N/A") {
-                maxScreens = 6; // Add patient screen (index 5) if a patient is selected
-            }
+            int maxScreens = 7; // Cycles through all 7 screens: 0:Surgical, 1:Energy, 2:Net, 3:Oscillation, 4:Diagnostics, 5:Patient, 6:Summary
             currentScreen = (currentScreen + 1) % maxScreens;
+            // If no patient is selected, skip Screen 5 (Patient Info) directly to Screen 6 (Summary)
+            if (patientName == "N/A" && currentScreen == 5) {
+                currentScreen = 6;
+            }
             lastScreenSwitch = millis();
         }
     } else {
@@ -1014,8 +1047,8 @@ void updateUI() {
  */
 String getFormattedDate() {
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo, 5000)){ // 5s timeout
-    Serial.println("Failed to obtain time from NTP.");
+  if (WiFi.status() != WL_CONNECTED || !getLocalTime(&timeinfo, 200)) {
+    Serial.println("Using default date (NTP not connected).");
     return "YYYY-MM-DD";
   }
   char buffer[11];

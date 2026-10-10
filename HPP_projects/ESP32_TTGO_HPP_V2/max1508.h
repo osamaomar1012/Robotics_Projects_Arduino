@@ -1,8 +1,8 @@
 /**
  * MODULE: MAX1508 (MX1508) Motor Driver Control
  * DESCRIPTION: This module provides functions to initialize and control a DC motor
- *              using the MAX1508 / MX1508 H-bridge driver. It leverages the ESP32's LEDC
- *              (LED Controller) peripheral for PWM generation to control motor speed.
+ *              using the MAX1508 / MX1508 H-bridge driver. It maps 0..100% speed to
+ *              0..255 PWM duty cycle on the ESP32's LEDC peripheral.
  * DEPENDENCIES: Arduino.h
  * Created by Eng.Osama Omar
  * Senior Integration Lead
@@ -13,45 +13,39 @@
 
 #include <Arduino.h>
 
-// Pins configuration for MAX1508 (MX1508) on Metanoia Motor Control Board
 #define MOTOR_IN1     13 // ESP32 GPIO 13 connected to MX1508 INA1 (Carrier Pad 20)
 #define MOTOR_IN2     25 // ESP32 GPIO 25 connected to MX1508 INB1 (Carrier Pad 5)
 
-// PWM Settings for ESP32's LEDC peripheral
-#define PWM_FREQ      5000 // PWM frequency in Hz (e.g., 5000 Hz for DC motors)
+#define PWM_FREQ      5000 // PWM frequency in Hz
 #define PWM_CHAN_A    0    // Channel for Forward (IN1)
 #define PWM_CHAN_B    1    // Channel for Reverse (IN2)
-#define PWM_RES       8    // PWM resolution in bits (e.g., 8 bits = 0-255 duty cycle)
+#define PWM_RES       8    // PWM resolution (8 bits = 0-255 duty cycle)
 
-/**
- * @brief Initializes the MAX1508 motor driver control pins.
- */
 void setupMAX1508() {
-    // Configure LEDC for both pins to allow bidirectional control
     ledcSetup(PWM_CHAN_A, PWM_FREQ, PWM_RES);
     ledcSetup(PWM_CHAN_B, PWM_FREQ, PWM_RES);
 
     ledcAttachPin(MOTOR_IN1, PWM_CHAN_A);
     ledcAttachPin(MOTOR_IN2, PWM_CHAN_B);
 
-    // Initialize both pins to LOW (Stop)
     ledcWrite(PWM_CHAN_A, 0);
     ledcWrite(PWM_CHAN_B, 0);
 }
 
 /**
- * @brief Sets the motor speed by adjusting the PWM duty cycle.
- * @param speed Signed value (-255 to 255). Positive = Fwd, Negative = Rev.
+ * @brief Sets the motor speed by mapping -100..100% to 0..255 PWM duty cycle.
+ * @param speed Signed value (-100 to 100). Positive = Fwd, Negative = Rev.
  */
 void setMotorSpeed(int16_t speed) {
+    int16_t duty = (abs(speed) * 255) / 100;
+    if (duty > 255) duty = 255;
+
     if (speed >= 0) {
-        // Forward: IN1 gets PWM, IN2 is LOW
-        ledcWrite(PWM_CHAN_A, speed);
+        ledcWrite(PWM_CHAN_A, duty);
         ledcWrite(PWM_CHAN_B, 0);
     } else {
-        // Reverse: IN1 is LOW, IN2 gets PWM
         ledcWrite(PWM_CHAN_A, 0);
-        ledcWrite(PWM_CHAN_B, -speed); // Use absolute value for duty cycle
+        ledcWrite(PWM_CHAN_B, duty);
     }
 }
 

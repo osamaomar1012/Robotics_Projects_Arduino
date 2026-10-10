@@ -28,15 +28,23 @@ Adafruit_INA219 ina219;
  */
 inline void setupINA219() {
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Wire.setTimeOut(30); // 30ms non-blocking timeout
     
-    // Initialize the INA219. By default, this uses the maximum range (32V, 2A).
+    // Probe I2C bus at address 0x40
+    Wire.beginTransmission(0x40);
+    byte error = Wire.endTransmission();
+    if (error == 0) {
+        Serial.printf("[I2C] INA219 found at address 0x40 (SDA=%d, SCL=%d)\n", I2C_SDA_PIN, I2C_SCL_PIN);
+    } else {
+        Serial.printf("[I2C WARNING] No response from 0x40 (err=%d). Check SDA=%d, SCL=%d\n", error, I2C_SDA_PIN, I2C_SCL_PIN);
+    }
+
+    // Initialize the INA219
     if (!ina219.begin()) {
-        Serial.println("Failed to find INA219 chip");
-        // We will not halt here, but we'll print an error.
+        Serial.println("Failed to find INA219 chip. Using fallback telemetry.");
     } else {
         Serial.println("INA219 Initialized successfully.");
-        // Optional: To increase precision for lower current, you can set calibration:
-        // ina219.setCalibration_16V_400mA();
+        ina219.setCalibration_32V_2A();
     }
 }
 
@@ -47,15 +55,15 @@ inline void setupINA219() {
  * @param current A float reference to store the calculated battery current.
  */
 inline void readINA219(float &voltage, float &current) {
-    float shuntvoltage = 0;
-    float busvoltage = 0;
-    float current_mA = 0;
+    float shuntvoltage = ina219.getShuntVoltage_mV();
+    float busvoltage = ina219.getBusVoltage_V();
+    float current_mA = ina219.getCurrent_mA();
     
-    // Read raw values from the INA219
-    shuntvoltage = ina219.getShuntVoltage_mV();
-    busvoltage = ina219.getBusVoltage_V();
-    current_mA = ina219.getCurrent_mA();
-    
+    // Guard against NaN / I2C bus read dropouts
+    if (isnan(shuntvoltage) || isnan(busvoltage) || isnan(current_mA)) {
+        return;
+    }
+
     // Total voltage is bus voltage + shunt voltage
     float instantV = busvoltage + (shuntvoltage / 1000.0f);
     float instantI = current_mA / 1000.0f; // Convert mA to A
